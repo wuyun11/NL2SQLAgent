@@ -29,6 +29,10 @@ def _write_config(project_root: Path) -> None:
         ),
         encoding="utf-8",
     )
+    (config_dir / "workflow.yml").write_text(
+        "workflow:\n  checkpointer:\n    provider: memory\n",
+        encoding="utf-8",
+    )
     (project_root / "pyproject.toml").write_text(
         "[project]\nname='test-agent'\n",
         encoding="utf-8",

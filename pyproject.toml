@@ -5,6 +5,7 @@ description = "NL2SQLAgent runtime foundation"
 requires-python = ">=3.12"
 dependencies = [
     "PyYAML>=6.0",
+    "langgraph>=1.0",
 ]
 
 [project.optional-dependencies]

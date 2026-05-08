@@ -9,7 +9,9 @@ from nl2sqlagent.platform.paths import (
     find_project_root,
     resolve_project_paths,
 )
+from nl2sqlagent.platform.persistence import build_checkpointer
 from nl2sqlagent.platform.runtime import create_run_context
+from nl2sqlagent.workflows.runtime import GraphRuntime
 
 
 def build_app(
@@ -42,11 +44,15 @@ def build_app(
         file_enabled=config.logging.file_enabled,
         console_enabled=config.logging.console_enabled,
     )
+    checkpointer = build_checkpointer(config.workflow)
+    graph_runtime = GraphRuntime()
     return NL2SQLAgentApp(
         config=config,
         paths=paths,
         logging=logging_runtime,
         run_context=run_context,
+        checkpointer=checkpointer,
+        graph_runtime=graph_runtime,
     )
 
 

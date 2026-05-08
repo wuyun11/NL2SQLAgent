@@ -24,15 +24,28 @@ class LoggingSection:
 
 
 @dataclass(frozen=True)
+class CheckpointerSection:
+    provider: str
+
+
+@dataclass(frozen=True)
+class WorkflowSection:
+    checkpointer: CheckpointerSection
+
+
+@dataclass(frozen=True)
 class AppConfig:
     app: AppSection
     paths: PathsSection
     logging: LoggingSection
+    workflow: WorkflowSection
 
 
 __all__ = [
     "AppConfig",
     "AppSection",
+    "CheckpointerSection",
     "LoggingSection",
     "PathsSection",
+    "WorkflowSection",
 ]

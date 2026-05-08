@@ -8,8 +8,10 @@ import yaml
 from nl2sqlagent.platform.config.models import (
     AppConfig,
     AppSection,
+    CheckpointerSection,
     LoggingSection,
     PathsSection,
+    WorkflowSection,
 )
 from nl2sqlagent.platform.errors import ConfigurationError
 
@@ -53,10 +55,17 @@ def load_app_config(config_dir: Path | None = None) -> AppConfig:
     resolved_config_dir = Path("config") if config_dir is None else config_dir
     app_data = _load_yaml_file(resolved_config_dir / "app.yml")
     env_data = _load_yaml_file(resolved_config_dir / "env.yml")
+    workflow_data = _load_yaml_file(resolved_config_dir / "workflow.yml")
 
     app_section = _mapping(app_data, "app", file_name="app.yml")
     paths_section = _mapping(env_data, "paths", file_name="env.yml")
     logging_section = _mapping(env_data, "logging", file_name="env.yml")
+    workflow_section = _mapping(workflow_data, "workflow", file_name="workflow.yml")
+    checkpointer_section = _mapping(
+        workflow_section,
+        "checkpointer",
+        file_name="workflow.yml",
+    )
 
     return AppConfig(
         app=AppSection(
@@ -75,6 +84,15 @@ def load_app_config(config_dir: Path | None = None) -> AppConfig:
                 logging_section,
                 "console_enabled",
                 section="logging",
+            ),
+        ),
+        workflow=WorkflowSection(
+            checkpointer=CheckpointerSection(
+                provider=_string(
+                    checkpointer_section,
+                    "provider",
+                    section="workflow.checkpointer",
+                ),
             ),
         ),
     )
