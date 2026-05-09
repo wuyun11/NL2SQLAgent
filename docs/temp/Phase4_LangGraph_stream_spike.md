@@ -462,3 +462,24 @@ Task：测试 updates + final_state 同时返回
 ```text
 这个 spike 是 Phase 4 的技术闸门：不先验证 LangGraph stream 行为，就不应该写 artifact 执行计划。
 ```
+
+## 14. 验证结果（已执行）
+
+验证时间：2026-05-09。解释器以 `.ai/local/python_path.txt` 为准（本机为 Conda 环境）。图与配置：`build_nl2sql_graph` + `memory` checkpointer + `GraphRuntime` 的 `_config` 规则；输入与集成测试一致：`{"raw_question": "统计员工数量", "options": {}}`。
+
+| 问题 | 结论 |
+|------|------|
+| Q1 `stream_mode="updates"` chunk 形态 | 每个 chunk 为 `dict`，键为节点名；例如 `{"normalize_question": {...}}`、`{"build_prompt": {"prompt_payload": ..., "final_prompt": ...}}`。本图一次成功路径约 6 条 updates chunk。 |
+| Q2 `stream_mode="values"` | 可用；chunk 为完整 state 的 `dict`；最后一个 chunk 即 final state（`status=success`，`checked_sql=SELECT 1 AS value`，含 `prompt_payload` 等）。本图约 7 个 values chunk。 |
+| Q3 `stream_mode=["updates","values"]` | 可用，不抛异常。 |
+| Q4 多 mode 返回结构 | 每个元素为二元组 `(mode, chunk)`，`mode` 为 `"updates"` 或 `"values"`，`chunk` 与同名单独 stream 时一致；两种事件交错，条数约为单独两种之和（本图约 13 条）。 |
+| Q5 stream（updates）结束后 `graph.get_state(config)` | 可用；`snapshot.values` 与 success 路径 final state 一致。 |
+| Q6 `get_state` 与 `invoke` | 使用不同 `thread_id` 分别 stream+get_state 与 invoke 对照：`status`、`checked_sql`、`final_prompt` 一致。 |
+| Q7 updates 是否含 `build_prompt` 的 prompt 产物 | 是；`build_prompt` 更新中含 `prompt_payload` 与 `final_prompt`。 |
+| Q8 能否一次执行避免为 artifact 再跑一遍 graph | 能：`stream_mode="updates"` 收集节点更新，结束后 `get_state(config)` 取 final state，无需第二次 `invoke`。 |
+
+**判定**：对应本文 **11.1 最理想结果**——优先采用「updates stream + `get_state(config)`」组合；后续可落地 `GraphRuntime.invoke_with_updates`（返回 `final_state` + update chunks），一次 run 即可支撑 `graph_updates.jsonl` 与 `output.json` 等。
+
+**自动化佐证**：`tests/integration/test_nl2sql_workflow.py::test_nl2sql_workflow_stream_updates_exposes_build_prompt_update` 已通过（验证 `build_prompt` 在 updates 中的字段形态）。
+
+**说明**：若在未设 UTF-8 的 Windows 终端直接打印中文，控制台可能显示乱码；以测试断言与集成测试为准，state 内字符串在 Python 侧正确。

@@ -1,533 +1,326 @@
-这份《Phase4_NL2SQL 运行 artifact 设计》整体上**方向正确，而且已经比“日志分类设计”更落地**。它很好地承接了前一份分类文档：不是继续空谈日志，而是具体落到了目录、文件、写入时机、失败策略、metadata、app.log 和测试重点。
+这份 `2026-05-09-nl2sql-run-artifacts.md` **整体可以执行**，而且比上一份设计稿已经前进到 implementation plan 级别了。它把 Phase 4 的核心边界守得很好：`GraphRuntime` 只处理通用 LangGraph 执行，`artifacts.py` 只处理 NL2SQL artifact，`nodes.py` 保持纯净，`Nl2SqlWorkflow` 只做编排、metadata 合并和 app.log 摘要。
 
-我的结论是：
+## 结论
 
 ```text
-设计可以通过。
-但还不能直接写执行计划。
-需要先解决一个关键技术风险：
-如何在一次 LangGraph 执行中同时拿到 updates 和 final state。
+可以执行。
+但执行前建议修 3 个小问题。
 ```
 
-这份文档自己也意识到了这一点，并把它列为执行计划阶段必须先验证的技术风险。 这是全篇最关键的点。
+这 3 个问题不是架构方向问题，而是测试/实现细节问题，修完后更稳。
 
 ---
 
-## 1. 总体评价
+## 这份计划做得好的地方
 
-这份设计比前一份“日志分类设计”更进一步，已经回答了这些问题：
+### 1. 范围控制非常清楚
 
-```text
-artifact 放哪里
-每次 NL2SQL 调用怎么隔离
-写哪些文件
-每个文件记录什么
-output.metadata 增加哪些路径
-app.log 写什么摘要
-写入失败怎么办
-token_usage 现在做不做
-artifact writer 放在哪里
-nodes 是否写文件
-```
-
-我认为这些大方向都是对的。尤其是这几条：
+计划明确允许创建：
 
 ```text
-1. 节点不直接写文件。
-2. checkpoint 不作为人工验收日志。
-3. app.log 只放摘要和 artifact 路径。
-4. final_prompt.txt 默认完整写出。
-5. graph_updates.jsonl 来自 LangGraph stream updates。
-6. artifact 写入失败默认不影响主流程。
-7. 当前阶段不做真实 token 统计。
+src/nl2sqlagent/workflows/nl2sql/artifacts.py
+tests/unit/workflows/nl2sql/test_artifacts.py
 ```
 
-这些原则都和前一份分类文档一致。
+并且明确禁止：
+
+```text
+real LLM calls
+real token usage files
+LangSmith
+OpenTelemetry
+real database
+real schema grounding
+retry / feedback loop
+domain/services/integrations
+CLI ask
+artifact file writes inside nodes.py
+NL2SQL business-field parsing inside GraphRuntime
+```
+
+这个范围非常好。
+
+它能防止 AI 在做 artifact 时顺手创建 `services/`、接真实 LLM、写 token 文件，或者把 artifact 写入逻辑塞进 node。
 
 ---
 
-## 2. 放在 `workspace/logs/.../artifacts` 下是可以接受的
+### 2. GraphRuntime 边界是正确的
 
-文档建议目录为：
-
-```text
-workspace/logs/<run_date>/<run_id>/artifacts/nl2sql/<artifact_id>/
-```
-
-而不是新增 `workspace/runs`。理由是当前项目已经有 `LoggingRuntime.log_dir`，Phase 4 是日志/观测能力，不需要马上扩展 `ProjectPaths` 和 `env.yml`。
-
-我认为这可以接受。
-
-我之前更倾向过：
+计划里要求：
 
 ```text
-workspace/runs/<run_date>/<run_id>/nl2sql/<thread_id>/
+GraphRuntime returns raw LangGraph update chunks only.
+Artifact writer is the only code that normalizes graph update chunks into node/update JSONL rows.
 ```
 
-但在你当前项目阶段，复用 `LoggingRuntime.log_dir` 更克制。只要文档明确：
+这个非常关键。
+
+也就是说：
 
 ```text
-logs 下的 artifacts 是“调试观测文件”，不是业务数据存储。
+GraphRuntime:
+  只知道 LangGraph stream / get_state / thread_id
+
+artifacts.py:
+  才知道 graph_updates.jsonl 要写成 {"node": ..., "update": ...}
+
+Nl2SqlWorkflow:
+  编排 run + artifact + metadata
 ```
 
-就没有问题。
+这个边界是对的。
 
-后续如果你真的需要长期归档、查询、清理策略，再拆成 `workspace/runs` 也不迟。
+LangGraph 官方文档也说明，`stream_mode="updates"` 用于流式获取每一步后的 state update，`stream_mode="values"` 用于获取每一步后的完整 state。([LangChain 文档][1]) 而 `graph.get_state(config)` 会根据指定 thread 的 config 返回最新 `StateSnapshot`。([LangChain 文档][2]) 所以你现在的 `invoke_with_updates -> stream updates -> get_state(config)` 路线是合理的。
 
 ---
 
-## 3. `artifact_id = request_id else resolved_thread_id` 合理
+### 3. artifact writer 责任清晰
 
-一个 `run_id` 下可能有多次 NL2SQL 调用，所以必须有单次调用目录。文档建议：
-
-```text
-artifact_id = request_id if request_id else resolved_thread_id
-```
-
-并要求目录名做文件名安全处理。
-
-这个规则合理。
-
-不过我建议在下一版里补一句：
+计划把 artifact writer 定位为唯一负责这些事情的地方：
 
 ```text
-manifest 中必须同时保留 request_id 和 thread_id。
-artifact_id 只是目录名，不替代 thread_id。
+构造 artifact path
+写 input.json / prompt_payload.json / final_prompt.txt / graph_updates.jsonl / output.json / manifest.json
+把 Path/datetime/dataclass 转成 JSON-safe value
+把 raw graph update chunks 标准化成 JSONL rows
 ```
 
-原因是：`request_id` 和 `thread_id` 的语义不同。
+这很好。
+
+尤其是你明确禁止：
 
 ```text
-request_id:
-  外部业务请求标识
-
-thread_id:
-  LangGraph checkpoint / stream / 状态线程标识
+json.dump/json.dumps artifact content inside Nl2SqlWorkflow.run
 ```
 
-artifact 目录可以优先用 `request_id`，但 `manifest.json` 必须保留真实 `thread_id`，否则后续查 checkpoint 或 stream history 时会断链。
-
-LangGraph persistence 文档也明确，checkpointer 使用 `thread_id` 作为保存和恢复 checkpoint 的主键。([LangChain 文档][1])
+这个规则很重要。否则 `workflow.py` 会越来越胖。
 
 ---
 
-## 4. 文件清单合理
+### 4. JSONL 设计是合理的
 
-文档建议单次运行生成：
-
-```text
-input.json
-prompt_payload.json
-final_prompt.txt
-graph_updates.jsonl
-output.json
-manifest.json
-```
-
-这是一个很好的最小集合。
-
-它们分别回答：
-
-```text
-input.json:
-  这次输入是什么
-
-prompt_payload.json:
-  提示词材料是什么
-
-final_prompt.txt:
-  最终给模型看的提示词是什么
-
-graph_updates.jsonl:
-  每个节点返回了什么 update
-
-output.json:
-  workflow 最终输出是什么
-
-manifest.json:
-  本次运行有哪些文件、状态、耗时、大小、错误
-```
-
-这个设计正好解决你上个项目的问题：**最终 prompt 不再藏在 chain log 或控制台里，而是独立成为可读、可 diff 的文件。**
-
----
-
-## 5. `graph_updates.jsonl` 的定位非常好
-
-文档把 LangGraph `stream_mode="updates"` 的原始 chunk 标准化为：
+`graph_updates.jsonl` 每行一个节点 update：
 
 ```json
 {"node":"build_prompt","update":{"final_prompt":"..."}}
 ```
 
-如果一个 chunk 里有多个 node，每个 node 写一行。
+这非常适合 LangGraph updates。JSON Lines 的基本约定就是 UTF-8 编码、每行一个合法 JSON value、用换行分隔。([JSON Lines][3])
 
-这个设计非常实用。
-
-LangGraph 文档说明，`updates` 会流式输出每一步之后的 state update，`values` 会输出每一步之后的完整 state。([LangChain 文档][2]) LangGraph reference 也说明，`updates` 发出的是节点或任务名以及节点返回的更新。([LangChain 参考文档][3])
-
-所以你的 `graph_updates.jsonl` 是很自然的派生 artifact：它不是 checkpoint，不是 app.log，而是把 stream update 变成可读文件。
-
-JSON Lines 也适合这个场景，因为它的基本规则就是 UTF-8 编码、每行一个合法 JSON 值、用 `\n` 分隔。([JSON Lines][4]) 每个节点 update 一行，后续人看、脚本筛、agent 读都方便。
+所以 graph updates 用 JSONL，比写一个大 JSON 数组更适合后续追加、筛选、diff 和 agent 读取。
 
 ---
 
-## 6. `output.metadata` 继续保留完整 prompt，同时新增路径，合理
+## 执行前建议修 3 个小问题
 
-文档建议 Phase 4 初版继续保留：
+### 问题 1：`_safe_artifact_id` 会把中文 request_id 全部丢掉
 
-```text
-metadata.prompt_payload
-metadata.final_prompt
-```
-
-同时新增：
-
-```text
-artifact_manifest_path
-input_path
-prompt_payload_path
-final_prompt_path
-graph_updates_path
-output_path
-token_usage_path
-artifact_error
-```
-
-这个我支持。
-
-原因是：
-
-```text
-1. 不破坏 Phase 3 既有测试。
-2. 现在还是 mock 数据，重复保存成本可控。
-3. artifact 机制刚引入，不要马上把 metadata 瘦身。
-4. 后面真实数据接入前，再决定是否只留路径。
-```
-
-不过下一版执行计划要注意一个细节：**`output.json` 里如果保存完整 `metadata`，里面会包含 `output_path` 指向自己。**
-
-这不是错误，但要避免出现不可序列化对象或循环引用。你当前 metadata 都是字符串/字典/None，问题不大。
-
----
-
-## 7. `token_usage` 当前只预留、不生成文件，是对的
-
-文档明确：
-
-```text
-metadata.token_usage_path = null
-manifest.artifact_files.token_usage = null
-不创建空 token_usage.json
-```
-
-理由是当前没有真实 LLM，空文件容易让人误以为已经统计。
-
-这个判断很好。
-
-后续真实 LLM 接入后，再从 `AIMessage.usage_metadata`、`response_metadata` 或 trace 中归一化 token 信息即可。现在先占位路径，不造假数据，是正确的。
-
----
-
-## 8. artifact writer 放在 `workflows/nl2sql/artifacts.py`，阶段性合理
-
-文档比较了三个方案：
-
-```text
-A. workflows/nl2sql/artifacts.py
-B. platform/observation/artifacts.py
-C. 通用 writer + NL2SQL adapter
-```
-
-最后推荐 A。
-
-我同意。
-
-原因是 Phase 4 的 artifact 明显理解 NL2SQL 字段：
-
-```text
-prompt_payload
-final_prompt
-graph_updates
-Nl2SqlOutput
-```
-
-放在 platform 层会让 platform 理解业务字段，反而不干净。
-
-等未来真的有第二个 workflow 也需要类似机制，再抽取公共 JSON/TXT/JSONL 写入工具即可。现在放在 `workflows/nl2sql/artifacts.py` 更符合 YAGNI。
-
----
-
-## 9. 最大技术风险：一次执行同时拿到 updates 和 final state
-
-这是这份文档最需要小心的地方。
-
-你希望：
-
-```text
-一次 run 同时产出 final state 和 graph_updates.jsonl
-```
-
-文档提出扩展：
+计划里的测试：
 
 ```python
-GraphRuntime.invoke_with_updates(...)
+request_id="request/中文 1"
 ```
 
-用 `graph.stream(..., stream_mode="updates")` 执行一次 graph，收集 updates，再从 stream 结束后获取 final state。
-
-方向对，但执行前必须验证 LangGraph API。
-
-因为：
+期望目录：
 
 ```text
-stream_mode="updates" 只给每步 update，不一定直接给最终完整 state。
-stream_mode="values" 给每步完整 state，但 chunk 形态和 updates 不同。
+request_1
 ```
 
-LangGraph reference 说明 `stream_mode` 可以传 list，并且 streamed outputs 会是 `(mode, data)` tuple。([LangChain 参考文档][5])
-
-所以我建议执行计划第一步专门做一个 Spike：
+这是因为只保留：
 
 ```text
-Spike：验证 graph.stream(..., stream_mode=["updates", "values"])
-目标：
-  1. 一次执行拿到 updates
-  2. 一次执行拿到 final full state
-  3. 不重复 invoke
+0-9 A-Z a-z _ -
 ```
 
-如果可行，`invoke_with_updates` 可以这样设计：
+这个规则可以接受，但要意识到：如果 request_id 是纯中文，比如：
+
+```text
+请求一
+```
+
+会被清洗成空字符串，然后回退到 `run_id`。这可能导致多个中文 request_id 都落到同一个目录。
+
+建议改成更安全的规则之一：
+
+**方案 A：保持当前规则，但文档和测试里明确：非 ASCII request_id 会被丢弃，空值回退 run_id。**
+
+**方案 B：更推荐，保留 Unicode 字母数字：**
 
 ```python
-@dataclass(frozen=True)
-class GraphRunResult:
-    final_state: dict[str, Any]
-    updates: list[dict[str, Any]]
+safe = re.sub(r"[^\w-]+", "_", value, flags=re.UNICODE).strip("_")
 ```
 
-如果不可行，退路也要明确：
+不过 Windows 路径和跨平台兼容上，方案 A 更保守。
 
-```text
-Phase 4 初版：
-  run() 先只写 final artifact；
-  stream() 再写 graph_updates；
-  或者暂时不承诺 graph_updates.jsonl 一定存在。
+我的建议：**Phase 4 初版可以保留当前 ASCII 规则，但加一个测试：纯非法 request_id 回退 run_id。**
+
+例如：
+
+```python
+def test_build_nl2sql_artifact_paths_falls_back_when_request_id_becomes_empty(tmp_path) -> None:
+    paths = build_nl2sql_artifact_paths(
+        log_dir=tmp_path,
+        run_context=_run_context(),
+        input=Nl2SqlInput(question="统计员工数量", request_id="中文"),
+        resolved_thread_id="thread-phase4",
+    )
+
+    assert paths.artifact_dir == tmp_path / "artifacts" / "nl2sql" / "run-phase4"
 ```
-
-但我建议优先尝试 `stream_mode=["updates", "values"]`，因为这最符合“一次执行”的目标。
 
 ---
 
-## 10. 写入失败策略合理，但要补一个关键细节
+### 问题 2：`artifact_id = request_id else thread_id` 但 manifest 测试要确认 thread_id 仍保留
 
-你现在设计：
+计划已经要求 manifest/input/output.metadata 同时保留 `request_id` 和 `thread_id`，这是对的。
 
-```text
-artifact 写入失败默认不影响主流程
-artifact_required=true 时可以抛异常
+但 Task 3 的主测试只断言了：
+
+```python
+manifest["thread_id"] == "thread-phase4"
+manifest["request_id"] == "request-1"
+manifest["artifact_id"] == "request-1"
 ```
 
-这个对。
-
-但有一个细节需要补：
+这个够用。建议再补一个 fallback 场景，验证没有 request_id 时：
 
 ```text
-如果写到一半失败，是否保留部分文件？
-manifest 是否写 artifact_error？
+artifact_id = thread_id 清洗结果
+manifest.request_id = None
+manifest.thread_id = 原始 resolved_thread_id
 ```
 
-建议下一版明确：
-
-```text
-1. 尽量先写 input/prompt/output 等文件。
-2. manifest 最后写。
-3. 如果 manifest 写成功但部分文件失败，manifest.artifact_error 记录错误。
-4. 如果 manifest 也失败，output.metadata.artifact_error 记录错误，artifact_manifest_path 为 null。
-5. 不做事务性回滚，不删除已写文件。
-```
-
-原因：artifact 是调试材料，部分文件也有价值。强行回滚反而会丢证据。
+这样能防止实现时把 `artifact_id` 误当成 `thread_id`。
 
 ---
 
-## 11. app.log 设计正确，但要明确 logger 从哪里来
+### 问题 3：`app.log` 检查命令可能误扫 artifact 文件
 
-文档要求 app.log 只写摘要：
+最终验证里有：
+
+```powershell
+.\.ai\local\tools\rg.exe "prompt_payload|User Question:|Schema Context:|result_rows" workspace\logs
+```
+
+它下面写了：
 
 ```text
-workflow started
-workflow finished
-artifact write failed
+It is acceptable if rg finds artifact JSON/TXT files under artifacts/
 ```
 
-不写完整 prompt/payload/updates。
+但这个命令本身会扫整个 `workspace/logs`，artifact 里肯定会出现这些内容，于是执行者会看到大量 matches，不好判断哪些来自 `app.log`。
 
-这个对。
+建议改成只扫 `app.log`：
 
-但执行设计里要明确：
-
-```text
-Nl2SqlWorkflow 需要拿到 logger 或 logging_runtime 吗？
+```powershell
+Get-ChildItem -Path workspace\logs -Filter app.log -Recurse | ForEach-Object {
+  Select-String -Path $_.FullName -Pattern "prompt_payload|User Question:|Schema Context:|result_rows"
+}
 ```
 
-现在 `Nl2SqlWorkflow` 已经有：
+或者如果用 rg：
 
-```text
-graph
-graph_runtime
-run_context
+```powershell
+.\.ai\local\tools\rg.exe "prompt_payload|User Question:|Schema Context:|result_rows" workspace\logs --glob app.log
 ```
 
-如果你要在 workflow started/finished 写 app.log，可能需要再注入：
-
-```python
-logger: logging.Logger
-```
-
-或者注入一个很薄的 `Nl2SqlRunLogger`。
-
-我建议 Phase 4 初版可以简单注入 logger：
-
-```python
-@dataclass(frozen=True)
-class Nl2SqlWorkflow:
-    graph: object
-    graph_runtime: GraphRuntime
-    run_context: RunContext
-    log_dir: Path
-    logger: Logger
-```
-
-但不要让 nodes 拿 logger。logger 只在 facade 层写摘要。
+这个建议值得执行前改掉。
 
 ---
 
-## 12. artifact writer 接口还差两个参数
+## 还有几个小的实现提醒
 
-文档建议接口：
+### 1. `graph.stream_config is graph.get_state_config` 这个测试很好
 
-```python
-def write_nl2sql_artifacts(
-    *,
-    log_dir: Path,
-    run_context: RunContext,
-    input: Nl2SqlInput,
-    thread_id: str,
-    output: Nl2SqlOutput,
-    graph_updates: list[dict[str, object]] | None = None,
-    started_at: datetime,
-    finished_at: datetime,
-    artifact_required: bool = False,
-) -> Nl2SqlArtifactResult:
-    ...
-```
-
-这个基本可以，但我建议补两个参数：
+这个断言非常有价值：
 
 ```python
-final_state: dict[str, Any] | None = None
-artifact_id: str | None = None
+assert graph.stream_config is graph.get_state_config
 ```
 
-原因：
+它强制 `stream` 和 `get_state` 使用同一个 config 对象。
 
-```text
-1. prompt_payload/final_prompt 的最权威来源其实是 final_state。
-   output.metadata 也有，但 output 可能后续被瘦身。
-
-2. artifact_id 显式传入有利于测试 request_id/thread_id 优先级。
-   writer 内部也可以计算，但测试时更容易验证。
-```
-
-更推荐：
-
-```python
-def write_nl2sql_artifacts(
-    *,
-    log_dir: Path,
-    run_context: RunContext,
-    input: Nl2SqlInput,
-    resolved_thread_id: str,
-    final_state: dict[str, Any],
-    output: Nl2SqlOutput,
-    graph_updates: list[dict[str, object]],
-    started_at: datetime,
-    finished_at: datetime,
-    artifact_required: bool = False,
-) -> Nl2SqlArtifactResult:
-    ...
-```
-
-artifact_id 可以内部按 `input.request_id or resolved_thread_id` 计算。
+这能避免一个很隐蔽的问题：`stream` 用一个 thread_id，`get_state` 重新生成另一个 thread_id，最终拿不到刚才执行的状态。
 
 ---
 
-## 13. 还需要补一个“路径是字符串还是 Path”的规则
+### 2. `GraphRuntime.resolve_thread_id` 公开出来是对的
 
-`output.metadata` 和 JSON 文件里应该保存字符串路径，而不是 `Path` 对象。
+因为 `Nl2SqlWorkflow` 要在 started log 里写 resolved thread_id。如果它自己重新拼一遍，就会出现两个 thread_id 规则。
 
-建议明确：
+现在计划让 workflow 调用：
 
-```text
-artifact writer 内部使用 Path。
-写入 JSON / metadata 时统一转成 str。
+```python
+self.graph_runtime.resolve_thread_id(...)
 ```
 
-否则后面 `json.dump` 会遇到 `Path` 不可序列化的问题。
+这很合理。
 
 ---
 
-## 14. 关于覆盖策略，我建议稍微保守一点
+### 3. `Nl2SqlWorkflow` 的 `log_dir/logger` 默认值可以保留，但要注意测试过渡
 
-文档说同一个 `artifact_id` 再次写入时默认覆盖同名文件，这是可接受的，因为同一个 `thread_id` 代表同一条线程。
+计划里为了让旧测试容易迁移，给了：
 
-我理解这个逻辑，但我建议加一个小保护：
-
-```text
-Phase 4 初版允许覆盖。
-但 manifest 中记录 overwritten=true 或 write_mode="overwrite"。
+```python
+log_dir: Path | None = None
+logger: Logger | None = None
 ```
 
-或者更简单：
+这个可以接受。
 
-```text
-manifest.write_mode = "overwrite"
-```
-
-原因是调试时你可能会误以为看到的是第一次运行，实际已经被覆盖。哪怕不引入 attempt_index，也应该让 manifest 表示当前写入策略。
+不过长期看，`build_app` 创建出来的正式 workflow 应该一定有 `log_dir/logger`。所以 Task 6 的 container 注入是必须的。
 
 ---
 
-## 15. 最终评价
+### 4. `stream()` 不写 artifact 是正确的
 
-这份设计**可以通过**，而且已经非常接近 implementation plan 的前置设计了。
-
-它最强的地方是：
+计划明确：
 
 ```text
-1. 没有把 checkpoint 当日志。
-2. 没有让 node 写文件。
-3. 没有把完整 prompt 塞进 app.log。
-4. 有单次运行 artifact 目录。
-5. 有 final_prompt.txt、prompt_payload.json、graph_updates.jsonl。
-6. 有 manifest 索引。
-7. 有 artifact 写入失败策略。
-8. token_usage 只预留，不造假。
+Do not write artifacts in stream(...); Phase 4 artifact writing belongs to run(...).
 ```
 
-但执行前必须先解决：
+这个判断对。
+
+因为 `stream()` 本来就是给调用方实时消费的。如果它也写 artifact，会引入两套路径和写入时机。Phase 4 初版只让 `run()` 自动产出完整 artifact，更清楚。
+
+---
+
+## 是否可以直接执行？
+
+可以，但我建议先改这 3 处：
 
 ```text
-如何一次执行同时拿到 graph_updates 和 final_state。
+1. 补 artifact_id 纯非法字符回退 run_id 的测试。
+2. 补 request_id 缺失时 artifact_id 使用 thread_id，但 manifest 仍保留 thread_id 的测试。
+3. 最终 app.log 检查命令改成只扫 app.log，不扫整个 artifacts 目录。
 ```
 
-这是唯一会影响实现路线的关键技术点。
+改完后就可以按 Task 1-8 执行。
 
-我的建议是：**下一步先写一个很小的 LangGraph stream spike 文档或测试，验证 `stream_mode=["updates", "values"]` 是否能满足需求；验证通过后，再写 Phase 4 artifact implementation plan。**
+---
 
-[1]: https://docs.langchain.com/oss/python/langgraph/persistence?utm_source=chatgpt.com "Persistence - Docs by LangChain"
-[2]: https://docs.langchain.com/oss/python/langgraph/streaming?utm_source=chatgpt.com "Streaming - Docs by LangChain"
-[3]: https://reference.langchain.com/python/langgraph/types/StreamMode?utm_source=chatgpt.com "StreamMode | langgraph"
-[4]: https://jsonlines.org/?utm_source=chatgpt.com "JSON Lines"
-[5]: https://reference.langchain.com/python/langgraph/pregel/main/Pregel/stream?utm_source=chatgpt.com "stream | langgraph"
+## 最终判断
+
+这份计划已经具备执行条件。它的关键优点是：
+
+```text
+1. 先扩 GraphRuntime，而不是让 workflow 自己处理 LangGraph stream/get_state。
+2. artifact writer 独立，workflow 不直接 json.dump。
+3. nodes 继续纯净。
+4. graph_updates.jsonl 有明确标准化规则。
+5. output.metadata 只放字符串路径和 null。
+6. artifact 失败默认不影响业务 status。
+7. token_usage 只预留 null，不创建假文件。
+8. 最终验证覆盖架构边界。
+```
+
+一句话总结：
+
+**可以执行。执行前把 artifact_id 边界测试和 app.log 检查命令补一下，会更稳。**
+
+[1]: https://docs.langchain.com/oss/python/langgraph/streaming?utm_source=chatgpt.com "Streaming - Docs by LangChain"
+[2]: https://docs.langchain.com/oss/python/langgraph/persistence?utm_source=chatgpt.com "Persistence - Docs by LangChain"
+[3]: https://jsonlines.org/?utm_source=chatgpt.com "JSON Lines"
