@@ -4,6 +4,17 @@ from nl2sqlagent.workflows.nl2sql.response_builder import build_nl2sql_output
 
 
 def test_build_output_for_success_includes_sql_rows_and_prompt_metadata() -> None:
+    prompt_payload = {
+        "question": {
+            "raw": "统计员工数量",
+            "normalized": "统计员工数量",
+        },
+        "debug": {
+            "prompt_version": "phase3.mock.v1",
+            "source": "mock_prompt_payload_builder",
+        },
+    }
+    final_prompt = "User Question:\n统计员工数量\nSchema Context:\nDialect: sqlite"
     output = build_nl2sql_output(
         {
             "status": "success",
@@ -11,8 +22,8 @@ def test_build_output_for_success_includes_sql_rows_and_prompt_metadata() -> Non
             "checked_sql": "SELECT 1 AS value",
             "result_columns": ["value"],
             "result_rows": [{"value": 1}],
-            "prompt_payload": {"question": "统计员工数量"},
-            "final_prompt": "Question: 统计员工数量\nGenerate SQL:",
+            "prompt_payload": prompt_payload,
+            "final_prompt": final_prompt,
         }
     )
 
@@ -21,8 +32,9 @@ def test_build_output_for_success_includes_sql_rows_and_prompt_metadata() -> Non
     assert output.sql == "SELECT 1 AS value"
     assert output.columns == ["value"]
     assert output.rows == [{"value": 1}]
-    assert output.metadata["prompt_payload"] == {"question": "统计员工数量"}
-    assert output.metadata["final_prompt"] == "Question: 统计员工数量\nGenerate SQL:"
+    assert output.metadata["prompt_payload"]["question"]["normalized"] == "统计员工数量"
+    assert output.metadata["prompt_payload"]["debug"]["prompt_version"] == "phase3.mock.v1"
+    assert "User Question:\n统计员工数量" in output.metadata["final_prompt"]
 
 
 def test_build_output_for_clarification_does_not_require_prompt_metadata() -> None:
@@ -42,20 +54,31 @@ def test_build_output_for_clarification_does_not_require_prompt_metadata() -> No
 
 
 def test_build_output_for_failed_prefers_check_error_message() -> None:
+    prompt_payload = {
+        "question": {
+            "raw": "bad",
+            "normalized": "bad",
+        },
+        "debug": {
+            "prompt_version": "phase3.mock.v1",
+            "source": "mock_prompt_payload_builder",
+        },
+    }
+    final_prompt = "User Question:\nbad\nSchema Context:\nDialect: sqlite"
     output = build_nl2sql_output(
         {
             "status": "failed",
             "check_error": "mock check error",
             "execute_error": "mock execute error",
             "message": "fallback message",
-            "prompt_payload": {"question": "bad"},
-            "final_prompt": "Question: bad\nGenerate SQL:",
+            "prompt_payload": prompt_payload,
+            "final_prompt": final_prompt,
         }
     )
 
     assert output.status == "failed"
     assert output.message == "mock check error"
-    assert output.metadata["final_prompt"] == "Question: bad\nGenerate SQL:"
+    assert "User Question:\nbad" in output.metadata["final_prompt"]
 
 
 def test_build_output_for_failed_uses_execute_error_when_no_check_error() -> None:

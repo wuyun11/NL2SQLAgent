@@ -42,7 +42,13 @@ def test_nl2sql_graph_success_path_includes_final_prompt() -> None:
     assert result["status"] == "success"
     assert result["checked_sql"] == "SELECT 1 AS value"
     assert result["result_rows"] == [{"value": 1}]
-    assert "Question: 统计员工数量" in result["final_prompt"]
+    assert "User Question:\n统计员工数量" in result["final_prompt"]
+    assert "Schema Context:" in result["final_prompt"]
+    assert "SQL Policy:" in result["final_prompt"]
+    assert "Output Contract:" in result["final_prompt"]
+    assert "phase3.mock.v1" not in result["final_prompt"]
+    assert result["prompt_payload"]["question"]["normalized"] == "统计员工数量"
+    assert result["prompt_payload"]["schema_context"]["tables"][0]["name"] == "employee"
 
 
 def test_nl2sql_graph_blank_question_goes_to_clarification() -> None:
@@ -78,7 +84,9 @@ def test_nl2sql_graph_check_failure_does_not_retry() -> None:
     assert result["status"] == "failed"
     assert result["message"] == "mock check error"
     assert result["check_error"] == "mock check error"
-    assert "Question: 统计员工数量" in result["final_prompt"]
+    assert "User Question:\n统计员工数量" in result["final_prompt"]
+    assert "phase3.mock.v1" not in result["final_prompt"]
+    assert result["prompt_payload"]["question"]["normalized"] == "统计员工数量"
     assert "result_rows" not in result
 
 
@@ -99,7 +107,8 @@ def test_nl2sql_graph_execute_failure_does_not_retry() -> None:
     assert result["status"] == "failed"
     assert result["message"] == "mock execute error"
     assert result["execute_error"] == "mock execute error"
-    assert "Question: 统计员工数量" in result["final_prompt"]
+    assert "User Question:\n统计员工数量" in result["final_prompt"]
+    assert "phase3.mock.v1" not in result["final_prompt"]
 
 
 def test_nl2sql_workflow_run_returns_output_with_prompt_metadata() -> None:
@@ -120,8 +129,10 @@ def test_nl2sql_workflow_run_returns_output_with_prompt_metadata() -> None:
     assert output.sql == "SELECT 1 AS value"
     assert output.columns == ["value"]
     assert output.rows == [{"value": 1}]
-    assert "Question: 统计员工数量" in output.metadata["final_prompt"]
-    assert output.metadata["prompt_payload"]["question"] == "统计员工数量"
+    assert "User Question:\n统计员工数量" in output.metadata["final_prompt"]
+    assert output.metadata["prompt_payload"]["question"]["normalized"] == "统计员工数量"
+    assert output.metadata["prompt_payload"]["debug"]["prompt_version"] == "phase3.mock.v1"
+    assert "phase3.mock.v1" not in output.metadata["final_prompt"]
 
 
 def test_nl2sql_workflow_run_preserves_prompt_metadata_on_check_failure() -> None:
@@ -143,7 +154,9 @@ def test_nl2sql_workflow_run_preserves_prompt_metadata_on_check_failure() -> Non
 
     assert output.status == "failed"
     assert output.message == "mock check error"
-    assert "Question: 统计员工数量" in output.metadata["final_prompt"]
+    assert "User Question:\n统计员工数量" in output.metadata["final_prompt"]
+    assert output.metadata["prompt_payload"]["debug"]["prompt_version"] == "phase3.mock.v1"
+    assert "phase3.mock.v1" not in output.metadata["final_prompt"]
 
 
 def test_nl2sql_workflow_stream_updates_exposes_build_prompt_update() -> None:
@@ -164,7 +177,9 @@ def test_nl2sql_workflow_stream_updates_exposes_build_prompt_update() -> None:
     assert any(
         isinstance(chunk, dict)
         and "build_prompt" in chunk
-        and "Question: 统计员工数量" in chunk["build_prompt"]["final_prompt"]
+        and chunk["build_prompt"]["prompt_payload"]["question"]["normalized"] == "统计员工数量"
+        and "User Question:\n统计员工数量" in chunk["build_prompt"]["final_prompt"]
+        and "phase3.mock.v1" not in chunk["build_prompt"]["final_prompt"]
         for chunk in chunks
     )
 
@@ -211,4 +226,5 @@ def test_build_app_exposes_nl2sql_workflow(tmp_path) -> None:
         thread_id="thread-nl2sql-app",
     )
     assert output.status == "success"
-    assert "Question: 统计员工数量" in output.metadata["final_prompt"]
+    assert "User Question:\n统计员工数量" in output.metadata["final_prompt"]
+    assert output.metadata["prompt_payload"]["question"]["normalized"] == "统计员工数量"

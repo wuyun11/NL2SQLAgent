@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from nl2sqlagent.workflows.nl2sql.prompt_builder import render_final_prompt
+from nl2sqlagent.workflows.nl2sql.prompt_payload import build_mock_prompt_payload
 from nl2sqlagent.workflows.nl2sql.state import Nl2SqlGraphState
 
 
@@ -18,26 +20,15 @@ def normalize_question_node(state: Nl2SqlGraphState) -> dict:
 
 
 def build_prompt_node(state: Nl2SqlGraphState) -> dict:
-    question = state.get("normalized_question") or ""
-    prompt_payload = {
-        "question": question,
-        "schema": "mock_schema",
-        "semantic_rules": ["mock_semantic_rule"],
-        "instruction": "Generate a read-only SQL query.",
-    }
-    final_prompt = "\n".join(
-        [
-            "You are an NL2SQL assistant.",
-            f"Question: {prompt_payload['question']}",
-            f"Schema: {prompt_payload['schema']}",
-            "Semantic Rules:",
-            "- mock_semantic_rule",
-            "Instruction: Generate a read-only SQL query.",
-        ]
+    raw_question = state.get("raw_question") or state.get("normalized_question") or ""
+    normalized_question = state.get("normalized_question") or raw_question.strip()
+    prompt_payload = build_mock_prompt_payload(
+        raw_question=raw_question,
+        normalized_question=normalized_question,
     )
     return {
         "prompt_payload": prompt_payload,
-        "final_prompt": final_prompt,
+        "final_prompt": render_final_prompt(prompt_payload),
     }
 
 
