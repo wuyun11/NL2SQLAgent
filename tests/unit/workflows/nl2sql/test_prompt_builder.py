@@ -1,7 +1,17 @@
 from __future__ import annotations
 
+from nl2sqlagent.workflows.nl2sql.knowledge_pipeline import (
+    build_initial_processed_question,
+    build_knowledge_retrieval_result,
+    build_sample_processed_database_knowledge,
+    build_schema_linking_result,
+    build_sql_generation_context,
+)
 from nl2sqlagent.workflows.nl2sql.prompt_builder import render_final_prompt
-from nl2sqlagent.workflows.nl2sql.prompt_payload import build_mock_prompt_payload
+from nl2sqlagent.workflows.nl2sql.prompt_payload import (
+    build_mock_prompt_payload,
+    build_prompt_payload_from_sql_generation_context,
+)
 
 
 def _payload() -> dict:
@@ -71,3 +81,23 @@ def test_render_final_prompt_does_not_render_debug() -> None:
     assert "Debug:" not in final_prompt
     assert "phase3.mock.v1" not in final_prompt
     assert "mock_prompt_payload_builder" not in final_prompt
+
+
+def test_render_final_prompt_renders_relationships_and_value_bindings_from_sql_context() -> None:
+    question = build_initial_processed_question("按部门统计在职员工人数")
+    knowledge = build_sample_processed_database_knowledge()
+    retrieval = build_knowledge_retrieval_result(question, knowledge)
+    linking = build_schema_linking_result(question, knowledge, retrieval)
+    context = build_sql_generation_context(question, knowledge, linking)
+    final_prompt = render_final_prompt(
+        build_prompt_payload_from_sql_generation_context(context)
+    )
+
+    assert "Relationships:" in final_prompt
+    assert "hr_emp_base.dept_id = hr_dept_dim.dept_id" in final_prompt
+    assert "Value Bindings:" in final_prompt
+    assert "在职员工 -> hr_emp_base.emp_stat_cd = ACTIVE" in final_prompt
+    assert "dropped_candidates" not in final_prompt
+    assert "retrieval_method" not in final_prompt
+    assert "vector_score" not in final_prompt
+    assert "chunk_id" not in final_prompt

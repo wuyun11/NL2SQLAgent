@@ -32,9 +32,29 @@ def _render_schema_context(schema_context: dict[str, Any]) -> list[str]:
     if relationships:
         lines.append("Relationships:")
         for relationship in relationships:
-            lines.append(f"- {relationship}")
+            if isinstance(relationship, dict):
+                lines.append(
+                    "- "
+                    f"{relationship.get('left_table', '')}.{relationship.get('left_column', '')} = "
+                    f"{relationship.get('right_table', '')}.{relationship.get('right_column', '')}"
+                )
+            else:
+                lines.append(f"- {relationship}")
     else:
         lines.append("Relationships: none")
+
+    value_bindings = schema_context.get("value_bindings") or []
+    if value_bindings:
+        lines.append("Value Bindings:")
+        for value_binding in value_bindings:
+            lines.append(
+                "- "
+                f"{value_binding.get('business_term', '')} -> "
+                f"{value_binding.get('table_name', '')}.{value_binding.get('column_name', '')} "
+                f"{value_binding.get('operator', '=')} {value_binding.get('value', '')}"
+            )
+    else:
+        lines.append("Value Bindings: none")
     return lines
 
 

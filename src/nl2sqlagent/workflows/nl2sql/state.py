@@ -2,6 +2,13 @@ from __future__ import annotations
 
 from typing import Any, Literal, TypedDict
 
+from nl2sqlagent.workflows.nl2sql.knowledge_contracts import (
+    KnowledgeRetrievalResult,
+    ProcessedDatabaseKnowledge,
+    ProcessedQuestion,
+    SchemaLinkingResult,
+    SqlGenerationContext,
+)
 from nl2sqlagent.workflows.nl2sql.prompt_payload import Nl2SqlPromptPayload
 from nl2sqlagent.workflows.nl2sql.runtime_options import Nl2SqlRuntimeOptions
 
@@ -17,6 +24,11 @@ class Nl2SqlGraphState(TypedDict, total=False):
 
     options: dict[str, Any]
     runtime_options: Nl2SqlRuntimeOptions
+    processed_question: ProcessedQuestion
+    processed_database_knowledge: ProcessedDatabaseKnowledge
+    knowledge_retrieval_result: KnowledgeRetrievalResult
+    schema_linking_result: SchemaLinkingResult
+    sql_generation_context: SqlGenerationContext
     prompt_payload: Nl2SqlPromptPayload
     final_prompt: str | None
 

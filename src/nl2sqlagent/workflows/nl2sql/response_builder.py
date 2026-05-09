@@ -28,10 +28,17 @@ def _message(state: Nl2SqlGraphState, status: Nl2SqlStatus) -> str | None:
 
 def build_prompt_debug_metadata(state: Nl2SqlGraphState) -> dict[str, Any]:
     metadata: dict[str, Any] = {}
-    if "prompt_payload" in state:
-        metadata["prompt_payload"] = state.get("prompt_payload")
-    if "final_prompt" in state:
-        metadata["final_prompt"] = state.get("final_prompt")
+    for key in (
+        "prompt_payload",
+        "final_prompt",
+        "processed_question",
+        "processed_database_knowledge",
+        "knowledge_retrieval_result",
+        "schema_linking_result",
+        "sql_generation_context",
+    ):
+        if key in state:
+            metadata[key] = state.get(key)
     return metadata
 
 

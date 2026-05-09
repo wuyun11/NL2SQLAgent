@@ -49,7 +49,7 @@ def test_nl2sql_graph_success_path_includes_final_prompt() -> None:
 
     result = runtime.invoke(
         graph=graph,
-        input={"raw_question": "统计员工数量", "options": {}},
+        input={"raw_question": "按部门统计在职员工人数", "options": {}},
         run_context=run_context,
         thread_id="thread-nl2sql-success",
     )
@@ -57,13 +57,16 @@ def test_nl2sql_graph_success_path_includes_final_prompt() -> None:
     assert result["status"] == "success"
     assert result["checked_sql"] == "SELECT 1 AS value"
     assert result["result_rows"] == [{"value": 1}]
-    assert "User Question:\n统计员工数量" in result["final_prompt"]
+    assert "User Question:\n按部门统计在职员工人数" in result["final_prompt"]
     assert "Schema Context:" in result["final_prompt"]
     assert "SQL Policy:" in result["final_prompt"]
     assert "Output Contract:" in result["final_prompt"]
-    assert "phase3.mock.v1" not in result["final_prompt"]
-    assert result["prompt_payload"]["question"]["normalized"] == "统计员工数量"
-    assert result["prompt_payload"]["schema_context"]["tables"][0]["name"] == "employee"
+    assert "phase6.sql-context.v1" not in result["final_prompt"]
+    assert result["prompt_payload"]["question"]["normalized"] == "按部门统计在职员工人数"
+    assert {t["name"] for t in result["prompt_payload"]["schema_context"]["tables"]} >= {
+        "hr_emp_base",
+        "hr_dept_dim",
+    }
 
 
 def test_nl2sql_graph_blank_question_goes_to_clarification() -> None:
@@ -89,7 +92,7 @@ def test_nl2sql_graph_check_failure_does_not_retry() -> None:
     result = runtime.invoke(
         graph=graph,
         input={
-            "raw_question": "统计员工数量",
+            "raw_question": "按部门统计在职员工人数",
             "options": {"force_check_error": True},
             "runtime_options": {"force_check_error": True},
         },
@@ -100,9 +103,9 @@ def test_nl2sql_graph_check_failure_does_not_retry() -> None:
     assert result["status"] == "failed"
     assert result["message"] == "mock check error"
     assert result["check_error"] == "mock check error"
-    assert "User Question:\n统计员工数量" in result["final_prompt"]
-    assert "phase3.mock.v1" not in result["final_prompt"]
-    assert result["prompt_payload"]["question"]["normalized"] == "统计员工数量"
+    assert "User Question:\n按部门统计在职员工人数" in result["final_prompt"]
+    assert "phase6.sql-context.v1" not in result["final_prompt"]
+    assert result["prompt_payload"]["question"]["normalized"] == "按部门统计在职员工人数"
     assert "result_rows" not in result
 
 
@@ -113,7 +116,7 @@ def test_nl2sql_graph_execute_failure_does_not_retry() -> None:
     result = runtime.invoke(
         graph=graph,
         input={
-            "raw_question": "统计员工数量",
+            "raw_question": "按部门统计在职员工人数",
             "options": {"force_execute_error": True},
             "runtime_options": {"force_execute_error": True},
         },
@@ -124,8 +127,8 @@ def test_nl2sql_graph_execute_failure_does_not_retry() -> None:
     assert result["status"] == "failed"
     assert result["message"] == "mock execute error"
     assert result["execute_error"] == "mock execute error"
-    assert "User Question:\n统计员工数量" in result["final_prompt"]
-    assert "phase3.mock.v1" not in result["final_prompt"]
+    assert "User Question:\n按部门统计在职员工人数" in result["final_prompt"]
+    assert "phase6.sql-context.v1" not in result["final_prompt"]
 
 
 def test_nl2sql_workflow_graph_input_preserves_options_and_adds_runtime_options() -> None:
@@ -158,7 +161,7 @@ def test_nl2sql_workflow_run_returns_output_with_prompt_metadata() -> None:
     )
 
     output = workflow.run(
-        Nl2SqlInput(question="统计员工数量"),
+        Nl2SqlInput(question="按部门统计在职员工人数"),
         thread_id="thread-nl2sql-workflow-run",
     )
 
@@ -166,10 +169,10 @@ def test_nl2sql_workflow_run_returns_output_with_prompt_metadata() -> None:
     assert output.sql == "SELECT 1 AS value"
     assert output.columns == ["value"]
     assert output.rows == [{"value": 1}]
-    assert "User Question:\n统计员工数量" in output.metadata["final_prompt"]
-    assert output.metadata["prompt_payload"]["question"]["normalized"] == "统计员工数量"
-    assert output.metadata["prompt_payload"]["debug"]["prompt_version"] == "phase3.mock.v1"
-    assert "phase3.mock.v1" not in output.metadata["final_prompt"]
+    assert "User Question:\n按部门统计在职员工人数" in output.metadata["final_prompt"]
+    assert output.metadata["prompt_payload"]["question"]["normalized"] == "按部门统计在职员工人数"
+    assert output.metadata["prompt_payload"]["debug"]["prompt_version"] == "phase6.sql-context.v1"
+    assert "phase6.sql-context.v1" not in output.metadata["final_prompt"]
 
 
 def test_nl2sql_workflow_run_preserves_prompt_metadata_on_check_failure() -> None:
@@ -183,7 +186,7 @@ def test_nl2sql_workflow_run_preserves_prompt_metadata_on_check_failure() -> Non
 
     output = workflow.run(
         Nl2SqlInput(
-            question="统计员工数量",
+            question="按部门统计在职员工人数",
             options={"force_check_error": True},
         ),
         thread_id="thread-nl2sql-workflow-check-failed",
@@ -191,9 +194,9 @@ def test_nl2sql_workflow_run_preserves_prompt_metadata_on_check_failure() -> Non
 
     assert output.status == "failed"
     assert output.message == "mock check error"
-    assert "User Question:\n统计员工数量" in output.metadata["final_prompt"]
-    assert output.metadata["prompt_payload"]["debug"]["prompt_version"] == "phase3.mock.v1"
-    assert "phase3.mock.v1" not in output.metadata["final_prompt"]
+    assert "User Question:\n按部门统计在职员工人数" in output.metadata["final_prompt"]
+    assert output.metadata["prompt_payload"]["debug"]["prompt_version"] == "phase6.sql-context.v1"
+    assert "phase6.sql-context.v1" not in output.metadata["final_prompt"]
 
 
 def test_nl2sql_workflow_stream_updates_exposes_build_prompt_update() -> None:
@@ -206,7 +209,7 @@ def test_nl2sql_workflow_stream_updates_exposes_build_prompt_update() -> None:
     )
 
     chunks = workflow.stream(
-        Nl2SqlInput(question="统计员工数量"),
+        Nl2SqlInput(question="按部门统计在职员工人数"),
         thread_id="thread-nl2sql-workflow-stream",
         stream_mode="updates",
     )
@@ -214,9 +217,11 @@ def test_nl2sql_workflow_stream_updates_exposes_build_prompt_update() -> None:
     assert any(
         isinstance(chunk, dict)
         and "build_prompt" in chunk
-        and chunk["build_prompt"]["prompt_payload"]["question"]["normalized"] == "统计员工数量"
-        and "User Question:\n统计员工数量" in chunk["build_prompt"]["final_prompt"]
-        and "phase3.mock.v1" not in chunk["build_prompt"]["final_prompt"]
+        and chunk["build_prompt"]["prompt_payload"]["question"]["normalized"] == "按部门统计在职员工人数"
+        and "User Question:\n按部门统计在职员工人数" in chunk["build_prompt"]["final_prompt"]
+        and "phase6.sql-context.v1" not in chunk["build_prompt"]["final_prompt"]
+        and "schema_linking_result" in chunk["build_prompt"]
+        and "sql_generation_context" in chunk["build_prompt"]
         for chunk in chunks
     )
 
@@ -225,7 +230,7 @@ def test_nl2sql_workflow_run_writes_artifacts(tmp_path) -> None:
     workflow = _workflow_with_log_dir(tmp_path)
 
     output = workflow.run(
-        Nl2SqlInput(question="统计员工数量", request_id="request-1"),
+        Nl2SqlInput(question="按部门统计在职员工人数", request_id="request-1"),
         thread_id="thread-nl2sql-artifact",
     )
 
@@ -245,10 +250,10 @@ def test_nl2sql_workflow_run_writes_artifacts(tmp_path) -> None:
     graph_updates_path = Path(output.metadata["graph_updates_path"])
     output_path = Path(output.metadata["output_path"])
 
-    assert "User Question:\n统计员工数量" in final_prompt_path.read_text(encoding="utf-8")
+    assert "User Question:\n按部门统计在职员工人数" in final_prompt_path.read_text(encoding="utf-8")
     assert (
         json.loads(prompt_payload_path.read_text(encoding="utf-8"))["question"]["normalized"]
-        == "统计员工数量"
+        == "按部门统计在职员工人数"
     )
     assert any(
         json.loads(line)["node"] == "build_prompt"
@@ -283,7 +288,7 @@ def test_nl2sql_workflow_ignores_unknown_options_but_preserves_input_artifact(
 
     output = workflow.run(
         Nl2SqlInput(
-            question="统计员工数量",
+            question="按部门统计在职员工人数",
             options={
                 "temperature": 0.1,
                 "force_check_error": "true",
@@ -308,7 +313,7 @@ def test_nl2sql_workflow_runtime_options_still_support_mock_check_failure(
 
     output = workflow.run(
         Nl2SqlInput(
-            question="统计员工数量",
+            question="按部门统计在职员工人数",
             options={"force_check_error": True},
         ),
         thread_id="thread-nl2sql-runtime-check-error",
@@ -317,7 +322,7 @@ def test_nl2sql_workflow_runtime_options_still_support_mock_check_failure(
     assert output.status == "failed"
     assert output.message == "mock check error"
     assert output.metadata["artifact_manifest_path"] is not None
-    assert output.metadata["prompt_payload"]["question"]["normalized"] == "统计员工数量"
+    assert output.metadata["prompt_payload"]["question"]["normalized"] == "按部门统计在职员工人数"
 
 
 def test_build_app_exposes_nl2sql_workflow(tmp_path) -> None:
@@ -358,12 +363,12 @@ def test_build_app_exposes_nl2sql_workflow(tmp_path) -> None:
     assert hasattr(app, "nl2sql_workflow")
     assert not hasattr(app, "hello_graph")
     output = app.nl2sql_workflow.run(
-        Nl2SqlInput(question="统计员工数量"),
+        Nl2SqlInput(question="按部门统计在职员工人数"),
         thread_id="thread-nl2sql-app",
     )
     assert output.status == "success"
-    assert "User Question:\n统计员工数量" in output.metadata["final_prompt"]
-    assert output.metadata["prompt_payload"]["question"]["normalized"] == "统计员工数量"
+    assert "User Question:\n按部门统计在职员工人数" in output.metadata["final_prompt"]
+    assert output.metadata["prompt_payload"]["question"]["normalized"] == "按部门统计在职员工人数"
     assert output.metadata["artifact_manifest_path"] is not None
     assert Path(output.metadata["artifact_manifest_path"]).exists()
     assert str(app.logging.log_dir) in output.metadata["artifact_manifest_path"]

@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+from nl2sqlagent.workflows.nl2sql.knowledge_pipeline import (
+    build_initial_processed_question,
+    build_knowledge_retrieval_result,
+    build_sample_processed_database_knowledge,
+    build_schema_linking_result,
+    build_sql_generation_context,
+)
 from nl2sqlagent.workflows.nl2sql.response_builder import (
     build_nl2sql_output,
     build_prompt_debug_metadata,
@@ -7,17 +14,22 @@ from nl2sqlagent.workflows.nl2sql.response_builder import (
 
 
 def test_build_output_for_success_includes_sql_rows_and_prompt_metadata() -> None:
+    question = build_initial_processed_question("按部门统计在职员工人数")
+    knowledge = build_sample_processed_database_knowledge()
+    retrieval = build_knowledge_retrieval_result(question, knowledge)
+    linking = build_schema_linking_result(question, knowledge, retrieval)
+    context = build_sql_generation_context(question, knowledge, linking)
     prompt_payload = {
         "question": {
-            "raw": "统计员工数量",
-            "normalized": "统计员工数量",
+            "raw": "按部门统计在职员工人数",
+            "normalized": "按部门统计在职员工人数",
         },
         "debug": {
-            "prompt_version": "phase3.mock.v1",
-            "source": "mock_prompt_payload_builder",
+            "prompt_version": "phase6.sql-context.v1",
+            "source": "sql_generation_context",
         },
     }
-    final_prompt = "User Question:\n统计员工数量\nSchema Context:\nDialect: sqlite"
+    final_prompt = "User Question:\n按部门统计在职员工人数\nSchema Context:\nDialect: sqlite"
     output = build_nl2sql_output(
         {
             "status": "success",
@@ -25,6 +37,10 @@ def test_build_output_for_success_includes_sql_rows_and_prompt_metadata() -> Non
             "checked_sql": "SELECT 1 AS value",
             "result_columns": ["value"],
             "result_rows": [{"value": 1}],
+            "processed_question": question,
+            "knowledge_retrieval_result": retrieval,
+            "schema_linking_result": linking,
+            "sql_generation_context": context,
             "prompt_payload": prompt_payload,
             "final_prompt": final_prompt,
         }
@@ -35,9 +51,12 @@ def test_build_output_for_success_includes_sql_rows_and_prompt_metadata() -> Non
     assert output.sql == "SELECT 1 AS value"
     assert output.columns == ["value"]
     assert output.rows == [{"value": 1}]
-    assert output.metadata["prompt_payload"]["question"]["normalized"] == "统计员工数量"
-    assert output.metadata["prompt_payload"]["debug"]["prompt_version"] == "phase3.mock.v1"
-    assert "User Question:\n统计员工数量" in output.metadata["final_prompt"]
+    assert output.metadata["prompt_payload"]["question"]["normalized"] == "按部门统计在职员工人数"
+    assert output.metadata["prompt_payload"]["debug"]["prompt_version"] == "phase6.sql-context.v1"
+    assert "User Question:\n按部门统计在职员工人数" in output.metadata["final_prompt"]
+    assert output.metadata["processed_question"]["text"] == "按部门统计在职员工人数"
+    assert "schema_linking_result" in output.metadata
+    assert "sql_generation_context" in output.metadata
 
 
 def test_build_output_for_clarification_does_not_require_prompt_metadata() -> None:
@@ -104,18 +123,26 @@ def test_build_output_for_failed_falls_back_to_default_message() -> None:
     assert output.message == "NL2SQL workflow failed."
 
 
-def test_build_prompt_debug_metadata_includes_only_prompt_fields() -> None:
+def test_build_prompt_debug_metadata_includes_intermediate_fields() -> None:
     state = {
         "prompt_payload": {"question": {"normalized": "统计员工数量"}},
         "final_prompt": "User Question:\n统计员工数量",
+        "processed_question": {"text": "统计员工数量"},
+        "knowledge_retrieval_result": {"candidates": []},
+        "schema_linking_result": {"selected_tables": []},
+        "sql_generation_context": {"question": {"text": "统计员工数量"}},
         "artifact_manifest_path": "should-not-be-copied",
         "result_rows": [{"value": 1}],
     }
 
-    assert build_prompt_debug_metadata(state) == {
-        "prompt_payload": {"question": {"normalized": "统计员工数量"}},
-        "final_prompt": "User Question:\n统计员工数量",
-    }
+    metadata = build_prompt_debug_metadata(state)
+    assert metadata["prompt_payload"] == {"question": {"normalized": "统计员工数量"}}
+    assert metadata["final_prompt"] == "User Question:\n统计员工数量"
+    assert metadata["processed_question"] == {"text": "统计员工数量"}
+    assert metadata["knowledge_retrieval_result"] == {"candidates": []}
+    assert metadata["schema_linking_result"] == {"selected_tables": []}
+    assert metadata["sql_generation_context"] == {"question": {"text": "统计员工数量"}}
+    assert "artifact_manifest_path" not in metadata
 
 
 def test_build_prompt_debug_metadata_returns_empty_for_clarification_state() -> None:

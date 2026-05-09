@@ -37,21 +37,27 @@ def test_build_prompt_node_creates_structured_payload_and_final_prompt() -> None
         }
     )
 
-    assert result["prompt_payload"]["question"] == {
-        "raw": "  统计员工数量  ",
-        "normalized": "统计员工数量",
-    }
+    assert "processed_question" in result
+    assert "processed_database_knowledge" in result
+    assert "knowledge_retrieval_result" in result
+    assert "schema_linking_result" in result
+    assert "sql_generation_context" in result
+    assert result["prompt_payload"]["question"]["normalized"] == "统计员工数量"
     assert result["prompt_payload"]["schema_context"]["dialect"] == "sqlite"
-    assert result["prompt_payload"]["schema_context"]["tables"][0]["name"] == "employee"
+    table_names = {
+        table["name"] for table in result["prompt_payload"]["schema_context"]["tables"]
+    }
+    assert {"hr_emp_base", "hr_dept_dim"} <= table_names
     assert result["prompt_payload"]["sql_policy"]["readonly_only"] is True
     assert result["prompt_payload"]["output_contract"]["format"] == "sql_only"
-    assert result["prompt_payload"]["debug"]["prompt_version"] == "phase3.mock.v1"
+    assert result["prompt_payload"]["debug"]["source"] == "sql_generation_context"
     assert "User Question:\n统计员工数量" in result["final_prompt"]
     assert "Allowed tables:" in result["final_prompt"]
-    assert "- Table: employee" in result["final_prompt"]
+    assert "在职员工 -> hr_emp_base.emp_stat_cd = ACTIVE" in result["final_prompt"]
     assert "SQL Policy:" in result["final_prompt"]
     assert "Output Contract:" in result["final_prompt"]
-    assert "phase3.mock.v1" not in result["final_prompt"]
+    assert "dropped_candidates" not in result["final_prompt"]
+    assert "retrieval_method" not in result["final_prompt"]
 
 
 def test_generate_sql_node_returns_sql_only_mock_sql() -> None:

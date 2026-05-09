@@ -1,6 +1,16 @@
 from __future__ import annotations
 
-from nl2sqlagent.workflows.nl2sql.prompt_payload import build_mock_prompt_payload
+from nl2sqlagent.workflows.nl2sql.knowledge_pipeline import (
+    build_initial_processed_question,
+    build_knowledge_retrieval_result,
+    build_sample_processed_database_knowledge,
+    build_schema_linking_result,
+    build_sql_generation_context,
+)
+from nl2sqlagent.workflows.nl2sql.prompt_payload import (
+    build_mock_prompt_payload,
+    build_prompt_payload_from_sql_generation_context,
+)
 
 
 def test_build_mock_prompt_payload_has_phase3_top_level_fields() -> None:
@@ -41,6 +51,7 @@ def test_build_mock_prompt_payload_defines_allowed_schema_scope() -> None:
     schema_context = payload["schema_context"]
     assert schema_context["dialect"] == "sqlite"
     assert schema_context["relationships"] == []
+    assert schema_context["value_bindings"] == []
     assert schema_context["tables"] == [
         {
             "name": "employee",
@@ -118,3 +129,30 @@ def test_build_mock_prompt_payload_returns_json_like_relationships_boundary() ->
     relationships = payload["schema_context"]["relationships"]
     assert relationships == []
     assert isinstance(relationships, list)
+
+
+def test_build_prompt_payload_from_sql_generation_context_keeps_clean_boundary() -> None:
+    question = build_initial_processed_question("按部门统计在职员工人数")
+    knowledge = build_sample_processed_database_knowledge()
+    retrieval = build_knowledge_retrieval_result(question, knowledge)
+    linking = build_schema_linking_result(question, knowledge, retrieval)
+    context = build_sql_generation_context(question, knowledge, linking)
+
+    payload = build_prompt_payload_from_sql_generation_context(context)
+
+    assert list(payload) == [
+        "task",
+        "question",
+        "schema_context",
+        "semantic_context",
+        "sql_policy",
+        "output_contract",
+        "debug",
+    ]
+    assert payload["schema_context"]["value_bindings"] == linking["value_bindings"]
+    assert payload["debug"]["source"] == "sql_generation_context"
+    serialized = str(payload)
+    assert "dropped_candidates" not in serialized
+    assert "retrieval_method" not in serialized
+    assert "vector_score" not in serialized
+    assert "chunk_id" not in serialized

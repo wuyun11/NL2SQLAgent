@@ -102,11 +102,15 @@ def test_write_nl2sql_artifacts_writes_expected_files(tmp_path) -> None:
     started_at = datetime(2026, 5, 9, 9, 0, 0)
     finished_at = datetime(2026, 5, 9, 9, 0, 1)
     final_state = {
+        "processed_question": {"text": "按部门统计在职员工人数"},
+        "knowledge_retrieval_result": {"candidates": []},
+        "schema_linking_result": {"selected_tables": [{"table_name": "hr_emp_base"}]},
+        "sql_generation_context": {"question": {"text": "按部门统计在职员工人数"}},
         "prompt_payload": {
-            "question": {"raw": "统计员工数量", "normalized": "统计员工数量"},
-            "debug": {"prompt_version": "phase3.mock.v1"},
+            "question": {"raw": "按部门统计在职员工人数", "normalized": "按部门统计在职员工人数"},
+            "debug": {"prompt_version": "phase6.sql-context.v1"},
         },
-        "final_prompt": "User Question:\n统计员工数量",
+        "final_prompt": "User Question:\n按部门统计在职员工人数",
     }
     output = Nl2SqlOutput(
         status="success",
@@ -115,6 +119,10 @@ def test_write_nl2sql_artifacts_writes_expected_files(tmp_path) -> None:
         columns=["value"],
         rows=[{"value": 1}],
         metadata={
+            "processed_question": final_state["processed_question"],
+            "knowledge_retrieval_result": final_state["knowledge_retrieval_result"],
+            "schema_linking_result": final_state["schema_linking_result"],
+            "sql_generation_context": final_state["sql_generation_context"],
             "prompt_payload": final_state["prompt_payload"],
             "final_prompt": final_state["final_prompt"],
         },
@@ -157,7 +165,7 @@ def test_write_nl2sql_artifacts_writes_expected_files(tmp_path) -> None:
     )
     assert (
         result.paths.final_prompt_path.read_text(encoding="utf-8")
-        == "User Question:\n统计员工数量"
+        == "User Question:\n按部门统计在职员工人数"
     )
 
     graph_update_lines = result.paths.graph_updates_path.read_text(
@@ -172,6 +180,8 @@ def test_write_nl2sql_artifacts_writes_expected_files(tmp_path) -> None:
     assert (
         output_data["metadata"]["artifact_manifest_path"] == str(result.paths.manifest_path)
     )
+    assert output_data["metadata"]["schema_linking_result"]["selected_tables"][0]["table_name"] == "hr_emp_base"
+    assert output_data["metadata"]["sql_generation_context"]["question"]["text"] == "按部门统计在职员工人数"
     assert output_data["metadata"]["token_usage_path"] is None
 
     manifest = json.loads(result.paths.manifest_path.read_text(encoding="utf-8"))
@@ -184,7 +194,7 @@ def test_write_nl2sql_artifacts_writes_expected_files(tmp_path) -> None:
     assert manifest["status"] == "success"
     assert manifest["artifact_error"] is None
     assert manifest["artifact_files"]["token_usage"] is None
-    assert manifest["sizes"]["final_prompt_size_chars"] == len("User Question:\n统计员工数量")
+    assert manifest["sizes"]["final_prompt_size_chars"] == len(final_state["final_prompt"])
 
 
 def test_write_nl2sql_artifacts_preserves_final_prompt_verbatim(tmp_path) -> None:

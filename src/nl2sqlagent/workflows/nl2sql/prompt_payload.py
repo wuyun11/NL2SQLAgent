@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import TypedDict
 
+from nl2sqlagent.workflows.nl2sql.knowledge_contracts import SqlGenerationContext
+
 
 class PromptTask(TypedDict):
     type: str
@@ -29,6 +31,7 @@ class PromptSchemaContext(TypedDict):
     dialect: str
     tables: list[PromptTable]
     relationships: list[dict[str, object]]
+    value_bindings: list[dict[str, object]]
 
 
 class PromptSemanticTerm(TypedDict):
@@ -104,6 +107,7 @@ def build_mock_prompt_payload(
                 }
             ],
             "relationships": [],
+            "value_bindings": [],
         },
         "semantic_context": {
             "business_terms": [
@@ -140,6 +144,51 @@ def build_mock_prompt_payload(
     }
 
 
+def build_prompt_payload_from_sql_generation_context(
+    sql_generation_context: SqlGenerationContext,
+) -> Nl2SqlPromptPayload:
+    question = sql_generation_context.get("question", {})
+    schema_context = sql_generation_context.get("schema_context", {})
+    semantic_context = sql_generation_context.get("semantic_context", {})
+    return {
+        "task": {
+            "type": "nl2sql",
+            "goal": "Generate a read-only SQL query for the user question.",
+        },
+        "question": {
+            "raw": str(question.get("raw", "")),
+            "normalized": str(question.get("text", "")),
+        },
+        "schema_context": {
+            "dialect": str(schema_context.get("dialect", "")),
+            "tables": [
+                {
+                    "name": str(item.get("table_name", "")),
+                    "description": str(item.get("reason", "")),
+                    "columns": [],
+                }
+                for item in schema_context.get("tables", [])
+            ],
+            "relationships": list(schema_context.get("relationships", [])),
+            "value_bindings": list(schema_context.get("value_bindings", [])),
+        },
+        "semantic_context": {
+            "business_terms": [
+                {"name": str(term), "description": ""}
+                for term in semantic_context.get("business_terms", [])
+            ],
+            "rules": list(semantic_context.get("semantic_rules", [])),
+            "assumptions": list(semantic_context.get("assumptions", [])),
+        },
+        "sql_policy": dict(sql_generation_context.get("sql_policy", {})),
+        "output_contract": dict(sql_generation_context.get("output_contract", {})),
+        "debug": {
+            "prompt_version": "phase6.sql-context.v1",
+            "source": "sql_generation_context",
+        },
+    }
+
+
 __all__ = [
     "Nl2SqlPromptPayload",
     "PromptColumn",
@@ -152,5 +201,6 @@ __all__ = [
     "PromptSqlPolicy",
     "PromptTable",
     "PromptTask",
+    "build_prompt_payload_from_sql_generation_context",
     "build_mock_prompt_payload",
 ]

@@ -1,7 +1,16 @@
 from __future__ import annotations
 
+from nl2sqlagent.workflows.nl2sql.knowledge_pipeline import (
+    build_initial_processed_question,
+    build_knowledge_retrieval_result,
+    build_sample_processed_database_knowledge,
+    build_schema_linking_result,
+    build_sql_generation_context,
+)
 from nl2sqlagent.workflows.nl2sql.prompt_builder import render_final_prompt
-from nl2sqlagent.workflows.nl2sql.prompt_payload import build_mock_prompt_payload
+from nl2sqlagent.workflows.nl2sql.prompt_payload import (
+    build_prompt_payload_from_sql_generation_context,
+)
 from nl2sqlagent.workflows.nl2sql.state import Nl2SqlGraphState
 
 
@@ -22,11 +31,30 @@ def normalize_question_node(state: Nl2SqlGraphState) -> dict:
 def build_prompt_node(state: Nl2SqlGraphState) -> dict:
     raw_question = state.get("raw_question") or state.get("normalized_question") or ""
     normalized_question = state.get("normalized_question") or raw_question.strip()
-    prompt_payload = build_mock_prompt_payload(
-        raw_question=raw_question,
-        normalized_question=normalized_question,
+    processed_question = build_initial_processed_question(normalized_question)
+    processed_database_knowledge = build_sample_processed_database_knowledge()
+    knowledge_retrieval_result = build_knowledge_retrieval_result(
+        processed_question, processed_database_knowledge
+    )
+    schema_linking_result = build_schema_linking_result(
+        processed_question,
+        processed_database_knowledge,
+        knowledge_retrieval_result,
+    )
+    sql_generation_context = build_sql_generation_context(
+        processed_question,
+        processed_database_knowledge,
+        schema_linking_result,
+    )
+    prompt_payload = build_prompt_payload_from_sql_generation_context(
+        sql_generation_context
     )
     return {
+        "processed_question": processed_question,
+        "processed_database_knowledge": processed_database_knowledge,
+        "knowledge_retrieval_result": knowledge_retrieval_result,
+        "schema_linking_result": schema_linking_result,
+        "sql_generation_context": sql_generation_context,
         "prompt_payload": prompt_payload,
         "final_prompt": render_final_prompt(prompt_payload),
     }

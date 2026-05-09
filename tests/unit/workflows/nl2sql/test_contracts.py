@@ -27,6 +27,22 @@ def test_nl2sql_input_options_default_dicts_are_not_shared() -> None:
     assert second.options == {}
 
 
+def test_knowledge_contracts_are_importable_without_heavy_layers() -> None:
+    from nl2sqlagent.workflows.nl2sql.knowledge_contracts import (
+        KnowledgeRetrievalResult,
+        ProcessedDatabaseKnowledge,
+        ProcessedQuestion,
+        SchemaLinkingResult,
+        SqlGenerationContext,
+    )
+
+    assert ProcessedQuestion
+    assert ProcessedDatabaseKnowledge
+    assert KnowledgeRetrievalResult
+    assert SchemaLinkingResult
+    assert SqlGenerationContext
+
+
 def test_nl2sql_output_defaults_to_empty_table_and_metadata() -> None:
     response = Nl2SqlOutput(status="success")
 
