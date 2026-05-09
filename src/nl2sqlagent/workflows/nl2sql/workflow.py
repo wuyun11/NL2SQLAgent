@@ -83,13 +83,18 @@ class Nl2SqlWorkflow:
                 artifact_result.artifact_error,
             )
         duration_ms = int((finished_at - started_at).total_seconds() * 1000)
+        artifact_manifest_path = (
+            str(artifact_result.paths.manifest_path)
+            if artifact_result.paths is not None
+            else None
+        )
         effective_logger.info(
             "NL2SQL workflow finished run_id=%s thread_id=%s status=%s duration_ms=%s artifact_manifest=%s",
             self.run_context.run_id,
             graph_result.thread_id,
             output.status,
             duration_ms,
-            artifact_result.metadata.get('artifact_manifest_path'),
+            artifact_manifest_path,
         )
         return replace(output, metadata={**output.metadata, **artifact_result.metadata})
 

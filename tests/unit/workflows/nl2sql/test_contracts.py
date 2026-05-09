@@ -117,21 +117,31 @@ def test_response_builder_does_not_construct_artifact_metadata() -> None:
 
 
 def test_workflow_does_not_hand_write_artifact_metadata_keys() -> None:
+    import ast
+
     source = Path("src/nl2sqlagent/workflows/nl2sql/workflow.py").read_text(
         encoding="utf-8"
     )
 
     forbidden = [
-        '"artifact_manifest_path"',
-        '"input_path"',
-        '"prompt_payload_path"',
-        '"final_prompt_path"',
-        '"graph_updates_path"',
-        '"output_path"',
-        '"token_usage_path"',
-        '"artifact_error"',
+        "artifact_manifest_path",
+        "input_path",
+        "prompt_payload_path",
+        "final_prompt_path",
+        "graph_updates_path",
+        "output_path",
+        "token_usage_path",
+        "artifact_error",
     ]
-    assert all(token not in source for token in forbidden)
+
+    tree = ast.parse(source)
+    string_literals = {
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+
+    assert all(token not in string_literals for token in forbidden)
     assert "artifact_result.metadata" in source
 
 
