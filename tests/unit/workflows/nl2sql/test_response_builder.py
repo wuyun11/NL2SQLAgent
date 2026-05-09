@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from nl2sqlagent.workflows.nl2sql.response_builder import build_nl2sql_output
+from nl2sqlagent.workflows.nl2sql.response_builder import (
+    build_nl2sql_output,
+    build_prompt_debug_metadata,
+)
 
 
 def test_build_output_for_success_includes_sql_rows_and_prompt_metadata() -> None:
@@ -99,3 +102,26 @@ def test_build_output_for_failed_falls_back_to_default_message() -> None:
 
     assert output.status == "failed"
     assert output.message == "NL2SQL workflow failed."
+
+
+def test_build_prompt_debug_metadata_includes_only_prompt_fields() -> None:
+    state = {
+        "prompt_payload": {"question": {"normalized": "统计员工数量"}},
+        "final_prompt": "User Question:\n统计员工数量",
+        "artifact_manifest_path": "should-not-be-copied",
+        "result_rows": [{"value": 1}],
+    }
+
+    assert build_prompt_debug_metadata(state) == {
+        "prompt_payload": {"question": {"normalized": "统计员工数量"}},
+        "final_prompt": "User Question:\n统计员工数量",
+    }
+
+
+def test_build_prompt_debug_metadata_returns_empty_for_clarification_state() -> None:
+    assert build_prompt_debug_metadata(
+        {
+            "status": "needs_clarification",
+            "message": "Please provide a question.",
+        }
+    ) == {}

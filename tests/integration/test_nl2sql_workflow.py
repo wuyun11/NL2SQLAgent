@@ -91,6 +91,7 @@ def test_nl2sql_graph_check_failure_does_not_retry() -> None:
         input={
             "raw_question": "统计员工数量",
             "options": {"force_check_error": True},
+            "runtime_options": {"force_check_error": True},
         },
         run_context=run_context,
         thread_id="thread-nl2sql-check-failed",
@@ -114,6 +115,7 @@ def test_nl2sql_graph_execute_failure_does_not_retry() -> None:
         input={
             "raw_question": "统计员工数量",
             "options": {"force_execute_error": True},
+            "runtime_options": {"force_execute_error": True},
         },
         run_context=run_context,
         thread_id="thread-nl2sql-execute-failed",
@@ -124,6 +126,26 @@ def test_nl2sql_graph_execute_failure_does_not_retry() -> None:
     assert result["execute_error"] == "mock execute error"
     assert "User Question:\n统计员工数量" in result["final_prompt"]
     assert "phase3.mock.v1" not in result["final_prompt"]
+
+
+def test_nl2sql_workflow_graph_input_preserves_options_and_adds_runtime_options() -> None:
+    graph_input = Nl2SqlWorkflow._graph_input(
+        Nl2SqlInput(
+            question="统计员工数量",
+            options={
+                "force_check_error": True,
+                "temperature": 0.1,
+                "force_execute_error": "true",
+            },
+        )
+    )
+
+    assert graph_input["options"] == {
+        "force_check_error": True,
+        "temperature": 0.1,
+        "force_execute_error": "true",
+    }
+    assert graph_input["runtime_options"] == {"force_check_error": True}
 
 
 def test_nl2sql_workflow_run_returns_output_with_prompt_metadata() -> None:
@@ -252,6 +274,50 @@ def test_nl2sql_workflow_clarification_writes_artifact_without_prompt_files(
     assert output.metadata["final_prompt_path"] is None
     assert output.metadata["graph_updates_path"] is not None
     assert output.metadata["artifact_manifest_path"] is not None
+
+
+def test_nl2sql_workflow_ignores_unknown_options_but_preserves_input_artifact(
+    tmp_path,
+) -> None:
+    workflow = _workflow_with_log_dir(tmp_path)
+
+    output = workflow.run(
+        Nl2SqlInput(
+            question="统计员工数量",
+            options={
+                "temperature": 0.1,
+                "force_check_error": "true",
+            },
+        ),
+        thread_id="thread-nl2sql-unknown-options",
+    )
+
+    assert output.status == "success"
+    input_path = Path(output.metadata["input_path"])
+    input_data = json.loads(input_path.read_text(encoding="utf-8"))
+    assert input_data["options"] == {
+        "temperature": 0.1,
+        "force_check_error": "true",
+    }
+
+
+def test_nl2sql_workflow_runtime_options_still_support_mock_check_failure(
+    tmp_path,
+) -> None:
+    workflow = _workflow_with_log_dir(tmp_path)
+
+    output = workflow.run(
+        Nl2SqlInput(
+            question="统计员工数量",
+            options={"force_check_error": True},
+        ),
+        thread_id="thread-nl2sql-runtime-check-error",
+    )
+
+    assert output.status == "failed"
+    assert output.message == "mock check error"
+    assert output.metadata["artifact_manifest_path"] is not None
+    assert output.metadata["prompt_payload"]["question"]["normalized"] == "统计员工数量"
 
 
 def test_build_app_exposes_nl2sql_workflow(tmp_path) -> None:

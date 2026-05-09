@@ -107,3 +107,14 @@ def test_build_mock_prompt_payload_defines_output_contract_and_debug() -> None:
         "prompt_version": "phase3.mock.v1",
         "source": "mock_prompt_payload_builder",
     }
+
+
+def test_build_mock_prompt_payload_returns_json_like_relationships_boundary() -> None:
+    payload = build_mock_prompt_payload(
+        raw_question="统计员工数量",
+        normalized_question="统计员工数量",
+    )
+
+    relationships = payload["schema_context"]["relationships"]
+    assert relationships == []
+    assert isinstance(relationships, list)

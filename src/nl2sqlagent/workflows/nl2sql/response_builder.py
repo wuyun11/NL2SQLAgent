@@ -26,7 +26,7 @@ def _message(state: Nl2SqlGraphState, status: Nl2SqlStatus) -> str | None:
     return state.get("message")
 
 
-def _metadata(state: Nl2SqlGraphState) -> dict[str, Any]:
+def build_prompt_debug_metadata(state: Nl2SqlGraphState) -> dict[str, Any]:
     metadata: dict[str, Any] = {}
     if "prompt_payload" in state:
         metadata["prompt_payload"] = state.get("prompt_payload")
@@ -43,8 +43,8 @@ def build_nl2sql_output(state: Nl2SqlGraphState) -> Nl2SqlOutput:
         sql=state.get("checked_sql") or state.get("generated_sql"),
         columns=list(state.get("result_columns") or []),
         rows=list(state.get("result_rows") or []),
-        metadata=_metadata(state),
+        metadata=build_prompt_debug_metadata(state),
     )
 
 
-__all__ = ["build_nl2sql_output"]
+__all__ = ["build_nl2sql_output", "build_prompt_debug_metadata"]

@@ -11,6 +11,7 @@ from nl2sqlagent.workflows.nl2sql.artifacts import write_nl2sql_artifacts
 from nl2sqlagent.workflows.nl2sql.input import Nl2SqlInput
 from nl2sqlagent.workflows.nl2sql.output import Nl2SqlOutput
 from nl2sqlagent.workflows.nl2sql.response_builder import build_nl2sql_output
+from nl2sqlagent.workflows.nl2sql.runtime_options import normalize_runtime_options
 from nl2sqlagent.workflows.runtime import GraphRuntime
 
 
@@ -30,6 +31,7 @@ class Nl2SqlWorkflow:
             "database_key": input.database_key,
             "raw_question": input.question,
             "options": dict(input.options),
+            "runtime_options": normalize_runtime_options(input.options),
             "status": "running",
         }
 
@@ -82,12 +84,12 @@ class Nl2SqlWorkflow:
             )
         duration_ms = int((finished_at - started_at).total_seconds() * 1000)
         effective_logger.info(
-            "NL2SQL workflow finished run_id=%s thread_id=%s status=%s duration_ms=%s artifact_manifest_path=%s",
+            "NL2SQL workflow finished run_id=%s thread_id=%s status=%s duration_ms=%s artifact_manifest=%s",
             self.run_context.run_id,
             graph_result.thread_id,
             output.status,
             duration_ms,
-            artifact_result.metadata.get("artifact_manifest_path"),
+            artifact_result.metadata.get('artifact_manifest_path'),
         )
         return replace(output, metadata={**output.metadata, **artifact_result.metadata})
 

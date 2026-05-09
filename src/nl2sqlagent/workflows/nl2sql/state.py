@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Literal, TypedDict
 
+from nl2sqlagent.workflows.nl2sql.prompt_payload import Nl2SqlPromptPayload
+from nl2sqlagent.workflows.nl2sql.runtime_options import Nl2SqlRuntimeOptions
+
 
 class Nl2SqlGraphState(TypedDict, total=False):
     request_id: str | None
@@ -13,7 +16,8 @@ class Nl2SqlGraphState(TypedDict, total=False):
     clarification_message: str | None
 
     options: dict[str, Any]
-    prompt_payload: dict[str, Any]
+    runtime_options: Nl2SqlRuntimeOptions
+    prompt_payload: Nl2SqlPromptPayload
     final_prompt: str | None
 
     generated_sql: str | None

@@ -37,8 +37,8 @@ def generate_sql_node(state: Nl2SqlGraphState) -> dict:
 
 
 def check_sql_node(state: Nl2SqlGraphState) -> dict:
-    options = state.get("options") or {}
-    if options.get("force_check_error") is True:
+    runtime_options = state.get("runtime_options") or {}
+    if runtime_options.get("force_check_error") is True:
         return {
             "check_error": "mock check error",
             "status": "failed",
@@ -50,8 +50,8 @@ def check_sql_node(state: Nl2SqlGraphState) -> dict:
 
 
 def execute_sql_node(state: Nl2SqlGraphState) -> dict:
-    options = state.get("options") or {}
-    if options.get("force_execute_error") is True:
+    runtime_options = state.get("runtime_options") or {}
+    if runtime_options.get("force_execute_error") is True:
         return {
             "execute_error": "mock execute error",
             "status": "failed",

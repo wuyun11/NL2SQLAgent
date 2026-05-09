@@ -66,7 +66,7 @@ def test_check_sql_node_can_force_check_error() -> None:
     result = check_sql_node(
         {
             "generated_sql": "SELECT 1 AS value",
-            "options": {"force_check_error": True},
+            "runtime_options": {"force_check_error": True},
         }
     )
 
@@ -89,7 +89,7 @@ def test_execute_sql_node_can_force_execute_error() -> None:
     result = execute_sql_node(
         {
             "checked_sql": "SELECT 1 AS value",
-            "options": {"force_execute_error": True},
+            "runtime_options": {"force_execute_error": True},
         }
     )
 
@@ -101,6 +101,35 @@ def test_execute_sql_node_can_force_execute_error() -> None:
 
 def test_execute_sql_node_returns_mock_rows() -> None:
     result = execute_sql_node({"checked_sql": "SELECT 1 AS value"})
+
+    assert result == {
+        "result_columns": ["value"],
+        "result_rows": [{"value": 1}],
+        "execute_error": None,
+    }
+
+
+def test_check_sql_node_ignores_raw_options() -> None:
+    result = check_sql_node(
+        {
+            "generated_sql": "SELECT 1 AS value",
+            "options": {"force_check_error": True},
+        }
+    )
+
+    assert result == {
+        "checked_sql": "SELECT 1 AS value",
+        "check_error": None,
+    }
+
+
+def test_execute_sql_node_ignores_raw_options() -> None:
+    result = execute_sql_node(
+        {
+            "checked_sql": "SELECT 1 AS value",
+            "options": {"force_execute_error": True},
+        }
+    )
 
     assert result == {
         "result_columns": ["value"],

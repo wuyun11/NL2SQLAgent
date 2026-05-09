@@ -1,13 +1,79 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TypedDict
+
+
+class PromptTask(TypedDict):
+    type: str
+    goal: str
+
+
+class PromptQuestion(TypedDict):
+    raw: str
+    normalized: str
+
+
+class PromptColumn(TypedDict):
+    name: str
+    type: str
+    description: str
+
+
+class PromptTable(TypedDict):
+    name: str
+    description: str
+    columns: list[PromptColumn]
+
+
+class PromptSchemaContext(TypedDict):
+    dialect: str
+    tables: list[PromptTable]
+    relationships: list[dict[str, object]]
+
+
+class PromptSemanticTerm(TypedDict):
+    name: str
+    description: str
+
+
+class PromptSemanticContext(TypedDict):
+    business_terms: list[PromptSemanticTerm]
+    rules: list[str]
+    assumptions: list[str]
+
+
+class PromptSqlPolicy(TypedDict):
+    readonly_only: bool
+    allow_select_star: bool
+    require_limit: bool
+    default_limit: int
+
+
+class PromptOutputContract(TypedDict):
+    format: str
+    requirements: list[str]
+
+
+class PromptDebug(TypedDict):
+    prompt_version: str
+    source: str
+
+
+class Nl2SqlPromptPayload(TypedDict):
+    task: PromptTask
+    question: PromptQuestion
+    schema_context: PromptSchemaContext
+    semantic_context: PromptSemanticContext
+    sql_policy: PromptSqlPolicy
+    output_contract: PromptOutputContract
+    debug: PromptDebug
 
 
 def build_mock_prompt_payload(
     *,
     raw_question: str,
     normalized_question: str,
-) -> dict[str, Any]:
+) -> Nl2SqlPromptPayload:
     return {
         "task": {
             "type": "nl2sql",
@@ -74,4 +140,17 @@ def build_mock_prompt_payload(
     }
 
 
-__all__ = ["build_mock_prompt_payload"]
+__all__ = [
+    "Nl2SqlPromptPayload",
+    "PromptColumn",
+    "PromptDebug",
+    "PromptOutputContract",
+    "PromptQuestion",
+    "PromptSchemaContext",
+    "PromptSemanticContext",
+    "PromptSemanticTerm",
+    "PromptSqlPolicy",
+    "PromptTable",
+    "PromptTask",
+    "build_mock_prompt_payload",
+]

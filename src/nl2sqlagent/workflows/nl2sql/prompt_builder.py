@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from nl2sqlagent.workflows.nl2sql.prompt_payload import Nl2SqlPromptPayload
+
 
 def _bool_text(value: object) -> str:
     return "true" if value is True else "false"
@@ -60,7 +62,7 @@ def _render_output_contract(output_contract: dict[str, Any]) -> list[str]:
     return [f"- {requirement}" for requirement in output_contract.get("requirements", [])]
 
 
-def render_final_prompt(prompt_payload: dict[str, Any]) -> str:
+def render_final_prompt(prompt_payload: Nl2SqlPromptPayload) -> str:
     task = prompt_payload["task"]
     question = prompt_payload["question"]
     schema_context = prompt_payload["schema_context"]

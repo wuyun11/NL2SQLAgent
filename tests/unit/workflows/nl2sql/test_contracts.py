@@ -69,3 +69,129 @@ def test_graph_runtime_does_not_reference_nl2sql_business_fields() -> None:
         "Nl2Sql",
     ]
     assert all(token not in source for token in forbidden)
+
+
+def test_runtime_options_are_normalized_in_workflow_not_nodes() -> None:
+    workflow_source = Path("src/nl2sqlagent/workflows/nl2sql/workflow.py").read_text(
+        encoding="utf-8"
+    )
+    nodes_source = Path("src/nl2sqlagent/workflows/nl2sql/nodes.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "normalize_runtime_options" in workflow_source
+    assert "normalize_runtime_options" not in nodes_source
+
+
+def test_nl2sql_nodes_do_not_read_raw_options() -> None:
+    source = Path("src/nl2sqlagent/workflows/nl2sql/nodes.py").read_text(
+        encoding="utf-8"
+    )
+
+    forbidden = [
+        'state.get("options")',
+        "state.get('options')",
+        'state["options"]',
+        "state['options']",
+    ]
+    assert all(token not in source for token in forbidden)
+    assert "runtime_options" in source
+
+
+def test_response_builder_does_not_construct_artifact_metadata() -> None:
+    source = Path("src/nl2sqlagent/workflows/nl2sql/response_builder.py").read_text(
+        encoding="utf-8"
+    )
+
+    forbidden = [
+        "artifact_manifest_path",
+        "input_path",
+        "prompt_payload_path",
+        "final_prompt_path",
+        "graph_updates_path",
+        "output_path",
+        "token_usage_path",
+        "artifact_error",
+    ]
+    assert all(token not in source for token in forbidden)
+
+
+def test_workflow_does_not_hand_write_artifact_metadata_keys() -> None:
+    source = Path("src/nl2sqlagent/workflows/nl2sql/workflow.py").read_text(
+        encoding="utf-8"
+    )
+
+    forbidden = [
+        '"artifact_manifest_path"',
+        '"input_path"',
+        '"prompt_payload_path"',
+        '"final_prompt_path"',
+        '"graph_updates_path"',
+        '"output_path"',
+        '"token_usage_path"',
+        '"artifact_error"',
+    ]
+    assert all(token not in source for token in forbidden)
+    assert "artifact_result.metadata" in source
+
+
+def test_artifacts_module_owns_artifact_metadata_keys() -> None:
+    source = Path("src/nl2sqlagent/workflows/nl2sql/artifacts.py").read_text(
+        encoding="utf-8"
+    )
+
+    required = [
+        "Nl2SqlArtifactMetadata",
+        "artifact_manifest_path",
+        "prompt_payload_path",
+        "final_prompt_path",
+        "graph_updates_path",
+        "token_usage_path",
+        "artifact_error",
+    ]
+    assert all(token in source for token in required)
+
+
+def test_phase5_does_not_add_heavy_architecture_layers() -> None:
+    forbidden_paths = [
+        Path("src/nl2sqlagent/domain"),
+        Path("src/nl2sqlagent/services"),
+        Path("src/nl2sqlagent/integrations"),
+        Path("src/nl2sqlagent/workflows/nl2sql/stages"),
+        Path("src/nl2sqlagent/workflows/nl2sql/models"),
+    ]
+
+    assert all(not path.exists() for path in forbidden_paths)
+
+
+def test_phase5_does_not_introduce_stage_protocol_or_context_result_shells() -> None:
+    import ast
+
+    root = Path("src/nl2sqlagent/workflows/nl2sql")
+    forbidden = {
+        "Nl2SqlContext",
+        "Nl2SqlStageProtocol",
+        "PrepareStage",
+        "GenerateStage",
+        "CheckStage",
+        "ExecuteStage",
+        "PrepareResult",
+        "GenerateResult",
+        "CheckResult",
+        "ExecuteResult",
+    }
+
+    used_names: set[str] = set()
+    for file in root.rglob("*.py"):
+        tree = ast.parse(file.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                used_names.add(node.id)
+            elif isinstance(node, ast.Attribute):
+                used_names.add(node.attr)
+            elif isinstance(node, ast.ClassDef):
+                used_names.add(node.name)
+            elif isinstance(node, ast.FunctionDef):
+                used_names.add(node.name)
+
+    assert forbidden.isdisjoint(used_names)
