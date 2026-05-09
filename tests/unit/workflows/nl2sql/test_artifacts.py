@@ -187,6 +187,26 @@ def test_write_nl2sql_artifacts_writes_expected_files(tmp_path) -> None:
     assert manifest["sizes"]["final_prompt_size_chars"] == len("User Question:\n统计员工数量")
 
 
+def test_write_nl2sql_artifacts_preserves_final_prompt_verbatim(tmp_path) -> None:
+    final_prompt = "\n  User Question:\n统计员工数量\n  "
+
+    result = write_nl2sql_artifacts(
+        log_dir=tmp_path,
+        run_context=_run_context(),
+        input=Nl2SqlInput(question="统计员工数量"),
+        resolved_thread_id="thread-phase4",
+        final_state={"final_prompt": final_prompt},
+        output=Nl2SqlOutput(status="success", metadata={}),
+        graph_updates=[],
+        started_at=datetime(2026, 5, 9, 9, 0, 0),
+        finished_at=datetime(2026, 5, 9, 9, 0, 1),
+        artifact_required=True,
+    )
+
+    assert result.paths is not None
+    assert result.paths.final_prompt_path.read_text(encoding="utf-8") == final_prompt
+
+
 def test_write_nl2sql_artifacts_skips_prompt_files_when_prompt_absent(tmp_path) -> None:
     output = Nl2SqlOutput(
         status="needs_clarification",
@@ -269,6 +289,50 @@ def test_write_nl2sql_artifacts_failure_does_not_raise_by_default(tmp_path) -> N
     assert result.artifact_error is not None
     assert result.metadata["artifact_error"] is not None
     assert result.metadata["artifact_manifest_path"] is None
+
+
+def test_write_nl2sql_artifacts_non_io_failure_does_not_raise_by_default(
+    tmp_path,
+) -> None:
+    result = write_nl2sql_artifacts(
+        log_dir=tmp_path,
+        run_context=_run_context(),
+        input=Nl2SqlInput(question="统计员工数量"),
+        resolved_thread_id="thread-phase4",
+        final_state={"final_prompt": "prompt"},
+        output=Nl2SqlOutput(status="success", metadata={}),
+        graph_updates=[{"bad_node": 1}],
+        started_at=datetime(2026, 5, 9, 9, 0, 0),
+        finished_at=datetime(2026, 5, 9, 9, 0, 1),
+    )
+
+    assert result.artifact_error is not None
+    assert result.metadata["artifact_error"] is not None
+    assert result.metadata["artifact_manifest_path"] is None
+
+
+def test_write_nl2sql_artifacts_does_not_leave_output_with_missing_manifest_path(
+    tmp_path,
+) -> None:
+    artifact_dir = tmp_path / "artifacts" / "nl2sql" / "request-1"
+    artifact_dir.mkdir(parents=True)
+    (artifact_dir / "manifest.json").mkdir()
+
+    result = write_nl2sql_artifacts(
+        log_dir=tmp_path,
+        run_context=_run_context(),
+        input=Nl2SqlInput(question="统计员工数量", request_id="request-1"),
+        resolved_thread_id="thread-phase4",
+        final_state={"final_prompt": "prompt"},
+        output=Nl2SqlOutput(status="success", metadata={}),
+        graph_updates=[],
+        started_at=datetime(2026, 5, 9, 9, 0, 0),
+        finished_at=datetime(2026, 5, 9, 9, 0, 1),
+    )
+
+    assert result.artifact_error is not None
+    assert result.metadata["artifact_manifest_path"] is None
+    assert not (artifact_dir / "output.json").exists()
 
 
 def test_write_nl2sql_artifacts_required_mode_reraises_failure(tmp_path) -> None:

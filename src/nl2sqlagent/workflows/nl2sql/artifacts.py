@@ -200,7 +200,7 @@ def write_nl2sql_artifacts(
             _write_json(paths.prompt_payload_path, prompt_payload)
 
         final_prompt = final_state.get("final_prompt")
-        final_prompt_text = str(final_prompt).strip() if final_prompt is not None else ""
+        final_prompt_text = str(final_prompt) if final_prompt is not None else ""
         final_prompt_written = bool(final_prompt_text)
         if final_prompt_written:
             paths.final_prompt_path.write_text(final_prompt_text, encoding="utf-8")
@@ -208,29 +208,6 @@ def write_nl2sql_artifacts(
         normalized_updates = normalize_graph_updates(graph_updates)
         _write_jsonl(paths.graph_updates_path, normalized_updates)
         graph_updates_written = True
-
-        metadata_without_manifest = _to_metadata(
-            paths=paths,
-            input_written=input_written,
-            prompt_payload_written=prompt_payload_written,
-            final_prompt_written=final_prompt_written,
-            graph_updates_written=graph_updates_written,
-            output_written=False,
-            manifest_written=True,
-            artifact_error=None,
-        )
-
-        output_json = {
-            "status": output.status,
-            "message": output.message,
-            "sql": output.sql,
-            "columns": list(output.columns),
-            "rows": list(output.rows),
-            "trace_id": output.trace_id,
-            "metadata": {**dict(output.metadata), **metadata_without_manifest},
-        }
-        _write_json(paths.output_path, output_json)
-        output_written = True
 
         artifact_id = paths.artifact_dir.name
         manifest = {
@@ -275,16 +252,26 @@ def write_nl2sql_artifacts(
             prompt_payload_written=prompt_payload_written,
             final_prompt_written=final_prompt_written,
             graph_updates_written=graph_updates_written,
-            output_written=output_written,
+            output_written=True,
             manifest_written=manifest_written,
             artifact_error=None,
         )
+        output_json = {
+            "status": output.status,
+            "message": output.message,
+            "sql": output.sql,
+            "columns": list(output.columns),
+            "rows": list(output.rows),
+            "trace_id": output.trace_id,
+            "metadata": {**dict(output.metadata), **metadata},
+        }
+        _write_json(paths.output_path, output_json)
         return Nl2SqlArtifactResult(
             paths=paths,
             metadata=metadata,
             artifact_error=None,
         )
-    except OSError as exc:
+    except Exception as exc:
         if artifact_required:
             raise
         error = str(exc)
