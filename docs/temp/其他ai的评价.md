@@ -1,13 +1,13 @@
-这份 `2026-05-09-nl2sql-run-artifacts.md` **整体可以执行**，而且比上一份设计稿已经前进到 implementation plan 级别了。它把 Phase 4 的核心边界守得很好：`GraphRuntime` 只处理通用 LangGraph 执行，`artifacts.py` 只处理 NL2SQL artifact，`nodes.py` 保持纯净，`Nl2SqlWorkflow` 只做编排、metadata 合并和 app.log 摘要。
+可以执行。
+这份 `2026-05-09-nl2sql-data-contracts.md` 已经是**可执行 implementation plan**，不是设计稿了。它把 Phase 5 的目标、范围、文件改动、测试先行步骤、最终验证和禁止事项都写清楚了，而且基本完全承接了前一份 Phase 5 设计目标：只做轻量数据契约，不接真实 LLM / DB / schema，不引入重型 stage/service/protocol/context 架构。
 
 ## 结论
 
 ```text
 可以执行。
-但执行前建议修 3 个小问题。
 ```
 
-这 3 个问题不是架构方向问题，而是测试/实现细节问题，修完后更稳。
+但我建议执行前修 3 个小点，都是为了减少 AI 执行时踩坑，不影响整体方向。
 
 ---
 
@@ -15,312 +15,225 @@
 
 ### 1. 范围控制非常清楚
 
-计划明确允许创建：
+计划明确只新增：
 
 ```text
-src/nl2sqlagent/workflows/nl2sql/artifacts.py
-tests/unit/workflows/nl2sql/test_artifacts.py
+runtime_options.py
+test_runtime_options.py
 ```
 
-并且明确禁止：
+主要修改 `workflow.py / nodes.py / prompt_payload.py / prompt_builder.py / response_builder.py / state.py`，并明确禁止真实 LLM、真实数据库、真实 schema grounding、retry、QueryPlan、CLI ask、`domain/services/integrations`、stage/protocol/context/result model、Pydantic 和 artifact 格式重设计。
 
-```text
-real LLM calls
-real token usage files
-LangSmith
-OpenTelemetry
-real database
-real schema grounding
-retry / feedback loop
-domain/services/integrations
-CLI ask
-artifact file writes inside nodes.py
-NL2SQL business-field parsing inside GraphRuntime
-```
-
-这个范围非常好。
-
-它能防止 AI 在做 artifact 时顺手创建 `services/`、接真实 LLM、写 token 文件，或者把 artifact 写入逻辑塞进 node。
+这个范围非常好。它防止 Phase 5 变成“顺手接真实能力”或者“顺手搭一堆空架构”。
 
 ---
 
-### 2. GraphRuntime 边界是正确的
+### 2. `runtime_options` 这一步非常必要
 
-计划里要求：
-
-```text
-GraphRuntime returns raw LangGraph update chunks only.
-Artifact writer is the only code that normalizes graph update chunks into node/update JSONL rows.
-```
-
-这个非常关键。
-
-也就是说：
+计划要求：
 
 ```text
-GraphRuntime:
-  只知道 LangGraph stream / get_state / thread_id
-
-artifacts.py:
-  才知道 graph_updates.jsonl 要写成 {"node": ..., "update": ...}
-
-Nl2SqlWorkflow:
-  编排 run + artifact + metadata
+External input can still expose options: dict[str, Any]
+Only normalize_runtime_options may interpret raw options keys
+Nodes must read runtime_options, not state["options"]
+Unknown options are ignored by runtime_options but preserved in input.options
+Only bool True/False values activate mock runtime flags
 ```
 
-这个边界是对的。
+这正好解决了当前 `options` 变成 magic-key 垃圾桶的风险。
 
-LangGraph 官方文档也说明，`stream_mode="updates"` 用于流式获取每一步后的 state update，`stream_mode="values"` 用于获取每一步后的完整 state。([LangChain 文档][1]) 而 `graph.get_state(config)` 会根据指定 thread 的 config 返回最新 `StateSnapshot`。([LangChain 文档][2]) 所以你现在的 `invoke_with_updates -> stream updates -> get_state(config)` 路线是合理的。
-
----
-
-### 3. artifact writer 责任清晰
-
-计划把 artifact writer 定位为唯一负责这些事情的地方：
+尤其是这两个规则很重要：
 
 ```text
-构造 artifact path
-写 input.json / prompt_payload.json / final_prompt.txt / graph_updates.jsonl / output.json / manifest.json
-把 Path/datetime/dataclass 转成 JSON-safe value
-把 raw graph update chunks 标准化成 JSONL rows
+未知 options 保留在 input artifact 里，用于复现。
+节点只能看白名单化后的 runtime_options。
 ```
 
-这很好。
-
-尤其是你明确禁止：
-
-```text
-json.dump/json.dumps artifact content inside Nl2SqlWorkflow.run
-```
-
-这个规则很重要。否则 `workflow.py` 会越来越胖。
-
----
-
-### 4. JSONL 设计是合理的
-
-`graph_updates.jsonl` 每行一个节点 update：
-
-```json
-{"node":"build_prompt","update":{"final_prompt":"..."}}
-```
-
-这非常适合 LangGraph updates。JSON Lines 的基本约定就是 UTF-8 编码、每行一个合法 JSON value、用换行分隔。([JSON Lines][3])
-
-所以 graph updates 用 JSONL，比写一个大 JSON 数组更适合后续追加、筛选、diff 和 agent 读取。
-
----
-
-## 执行前建议修 3 个小问题
-
-### 问题 1：`_safe_artifact_id` 会把中文 request_id 全部丢掉
-
-计划里的测试：
+这样后续如果有人传：
 
 ```python
-request_id="request/中文 1"
+{"temperature": 0.1, "force_check_error": "true"}
 ```
 
-期望目录：
-
-```text
-request_1
-```
-
-这是因为只保留：
-
-```text
-0-9 A-Z a-z _ -
-```
-
-这个规则可以接受，但要意识到：如果 request_id 是纯中文，比如：
-
-```text
-请求一
-```
-
-会被清洗成空字符串，然后回退到 `run_id`。这可能导致多个中文 request_id 都落到同一个目录。
-
-建议改成更安全的规则之一：
-
-**方案 A：保持当前规则，但文档和测试里明确：非 ASCII request_id 会被丢弃，空值回退 run_id。**
-
-**方案 B：更推荐，保留 Unicode 字母数字：**
-
-```python
-safe = re.sub(r"[^\w-]+", "_", value, flags=re.UNICODE).strip("_")
-```
-
-不过 Windows 路径和跨平台兼容上，方案 A 更保守。
-
-我的建议：**Phase 4 初版可以保留当前 ASCII 规则，但加一个测试：纯非法 request_id 回退 run_id。**
-
-例如：
-
-```python
-def test_build_nl2sql_artifact_paths_falls_back_when_request_id_becomes_empty(tmp_path) -> None:
-    paths = build_nl2sql_artifact_paths(
-        log_dir=tmp_path,
-        run_context=_run_context(),
-        input=Nl2SqlInput(question="统计员工数量", request_id="中文"),
-        resolved_thread_id="thread-phase4",
-    )
-
-    assert paths.artifact_dir == tmp_path / "artifacts" / "nl2sql" / "run-phase4"
-```
+不会影响节点执行，但仍然能在 `input.json` 里看到原始输入，这个设计很稳。
 
 ---
 
-### 问题 2：`artifact_id = request_id else thread_id` 但 manifest 测试要确认 thread_id 仍保留
+### 3. 继续使用 `TypedDict` 是正确的
 
-计划已经要求 manifest/input/output.metadata 同时保留 `request_id` 和 `thread_id`，这是对的。
+计划没有引入 Pydantic，也没有把 graph state 改成 dataclass，而是继续使用 `TypedDict`。这和 LangGraph 的使用方式一致：LangGraph 的 StateGraph 节点通过读取共享 state 并返回 `Partial<State>` 进行通信，State schema 可以是 `TypedDict` 或 Pydantic model。([LangChain 参考文档][1])
 
-但 Task 3 的主测试只断言了：
+而 Python TypedDict 的 `total=False` 语义也适合 LangGraph state：字段可以非必需，符合节点逐步填充状态的模型。([Typing Python][2])
 
-```python
-manifest["thread_id"] == "thread-phase4"
-manifest["request_id"] == "request-1"
-manifest["artifact_id"] == "request-1"
-```
-
-这个够用。建议再补一个 fallback 场景，验证没有 request_id 时：
-
-```text
-artifact_id = thread_id 清洗结果
-manifest.request_id = None
-manifest.thread_id = 原始 resolved_thread_id
-```
-
-这样能防止实现时把 `artifact_id` 误当成 `thread_id`。
-
----
-
-### 问题 3：`app.log` 检查命令可能误扫 artifact 文件
-
-最终验证里有：
-
-```powershell
-.\.ai\local\tools\rg.exe "prompt_payload|User Question:|Schema Context:|result_rows" workspace\logs
-```
-
-它下面写了：
-
-```text
-It is acceptable if rg finds artifact JSON/TXT files under artifacts/
-```
-
-但这个命令本身会扫整个 `workspace/logs`，artifact 里肯定会出现这些内容，于是执行者会看到大量 matches，不好判断哪些来自 `app.log`。
-
-建议改成只扫 `app.log`：
-
-```powershell
-Get-ChildItem -Path workspace\logs -Filter app.log -Recurse | ForEach-Object {
-  Select-String -Path $_.FullName -Pattern "prompt_payload|User Question:|Schema Context:|result_rows"
-}
-```
-
-或者如果用 rg：
-
-```powershell
-.\.ai\local\tools\rg.exe "prompt_payload|User Question:|Schema Context:|result_rows" workspace\logs --glob app.log
-```
-
-这个建议值得执行前改掉。
-
----
-
-## 还有几个小的实现提醒
-
-### 1. `graph.stream_config is graph.get_state_config` 这个测试很好
-
-这个断言非常有价值：
+所以 Phase 5 继续保持：
 
 ```python
-assert graph.stream_config is graph.get_state_config
+class Nl2SqlGraphState(TypedDict, total=False):
+    ...
 ```
 
-它强制 `stream` 和 `get_state` 使用同一个 config 对象。
-
-这能避免一个很隐蔽的问题：`stream` 用一个 thread_id，`get_state` 重新生成另一个 thread_id，最终拿不到刚才执行的状态。
+是正确的。不要为了“更类型化”强行上 dataclass 或 Pydantic。
 
 ---
 
-### 2. `GraphRuntime.resolve_thread_id` 公开出来是对的
-
-因为 `Nl2SqlWorkflow` 要在 started log 里写 resolved thread_id。如果它自己重新拼一遍，就会出现两个 thread_id 规则。
-
-现在计划让 workflow 调用：
-
-```python
-self.graph_runtime.resolve_thread_id(...)
-```
-
-这很合理。
-
----
-
-### 3. `Nl2SqlWorkflow` 的 `log_dir/logger` 默认值可以保留，但要注意测试过渡
-
-计划里为了让旧测试容易迁移，给了：
-
-```python
-log_dir: Path | None = None
-logger: Logger | None = None
-```
-
-这个可以接受。
-
-不过长期看，`build_app` 创建出来的正式 workflow 应该一定有 `log_dir/logger`。所以 Task 6 的 container 注入是必须的。
-
----
-
-### 4. `stream()` 不写 artifact 是正确的
+### 4. metadata 边界收敛得很好
 
 计划明确：
 
 ```text
-Do not write artifacts in stream(...); Phase 4 artifact writing belongs to run(...).
+response_builder owns prompt debug metadata only
+artifacts.py owns artifact metadata only
+workflow.py may merge metadata but must not hand-write artifact path keys
+GraphRuntime remains NL2SQL-agnostic
 ```
 
-这个判断对。
+这个边界非常重要。
 
-因为 `stream()` 本来就是给调用方实时消费的。如果它也写 artifact，会引入两套路径和写入时机。Phase 4 初版只让 `run()` 自动产出完整 artifact，更清楚。
+它延续了 Phase 4 的 artifact 设计：artifact 路径和 metadata 只应该由 `artifacts.py` 构造，workflow 只合并，不解释 artifact 字段。Phase 4 设计里也明确 artifact writer 放在 `workflows/nl2sql/artifacts.py`，因为这些字段具有明显 NL2SQL 业务含义，不适合放到平台层过早抽象。
 
 ---
 
-## 是否可以直接执行？
+## 执行前建议修 3 个小点
 
-可以，但我建议先改这 3 处：
+### 1. Task 2 把 `_graph_input` 测试放在 integration 里不太合适
+
+计划里在 `tests/integration/test_nl2sql_workflow.py` 添加：
+
+```python
+Nl2SqlWorkflow._graph_input(...)
+```
+
+这其实是一个纯函数/静态方法测试，更像 unit test，不是 integration test。
+
+不阻塞执行，但我建议改到：
 
 ```text
-1. 补 artifact_id 纯非法字符回退 run_id 的测试。
-2. 补 request_id 缺失时 artifact_id 使用 thread_id，但 manifest 仍保留 thread_id 的测试。
-3. 最终 app.log 检查命令改成只扫 app.log，不扫整个 artifacts 目录。
+tests/unit/workflows/nl2sql/test_workflow.py
 ```
 
-改完后就可以按 Task 1-8 执行。
+如果现在没有这个文件，也可以暂时保留在 integration 里。但长期看，`_graph_input` 的契约属于 workflow 单元行为，不应该依赖 integration 测试文件。
+
+更稳的执行方式：
+
+```text
+可以先按计划放 integration；
+后续如果 workflow 单测增多，再拆 test_workflow.py。
+```
 
 ---
+
+### 2. `normalize_runtime_options` 的 “False 是否保留” 要确认
+
+计划里测试期望：
+
+```python
+normalize_runtime_options({
+    "force_check_error": True,
+    "force_execute_error": False,
+}) == {
+    "force_check_error": True,
+    "force_execute_error": False,
+}
+```
+
+这表示 `False` 也会进入 runtime_options。
+
+这个可以接受，因为它保留了用户明确传入的白名单 bool 值。但如果你希望 runtime_options 只保存“激活的开关”，那应该只保留 True。
+
+我建议**保持计划当前写法**：True/False 都保留。理由是：
+
+```text
+1. 它表达“用户明确设置过这个开关”。
+2. 节点判断用 `is True`，False 不会触发错误。
+3. artifact / state 中能看到明确设置。
+```
+
+但执行时一定要保持节点判断：
+
+```python
+runtime_options.get("force_check_error") is True
+```
+
+不要写成：
+
+```python
+if runtime_options.get("force_check_error"):
+```
+
+虽然当前等价，但 `is True` 更符合设计意图。
+
+---
+
+### 3. `test_phase5_does_not_introduce_stage_protocol_or_context_result_shells` 可能误伤字符串
+
+这个测试会扫描 `workflows/nl2sql` 下所有 `.py`，禁止出现：
+
+```text
+PrepareStage
+GenerateStage
+CheckStage
+ExecuteStage
+PrepareResult
+...
+```
+
+方向是对的，但以后如果注释里提到“不要引入 PrepareStage”，也会失败。
+
+当前可以执行，因为它就是为了防止过度抽象。但我建议在实现时避免在源码注释中写这些 forbidden token；把这类解释留在 docs，不要写进 `.py`。
+
+---
+
+## 我认为不需要改的地方
+
+### 1. 不需要新增 `domain/services/integrations`
+
+计划明确禁止这些目录，非常正确。Phase 5 是数据契约收敛，不是业务能力拆分。前置设计也明确 Phase 5 要收敛 options / prompt_payload / output metadata / graph state 的字段边界，但不新增重型结构。
+
+### 2. 不需要改变 artifact 文件格式
+
+计划只做 artifact metadata 来源边界测试，不重写 Phase 4 artifact。这个正确。Phase 4 已经确定了 `input.json / prompt_payload.json / final_prompt.txt / graph_updates.jsonl / output.json / manifest.json`，并且不生成真实 `token_usage.json`。
+
+### 3. 不需要为 `rows` 建类型模型
+
+`rows: list[dict[str, Any]]` 继续保留是合理的。SQL 查询结果列是动态的，当前没有固定业务表格 schema；强行建模会过早。前置设计也明确 rows 只表示最终结果表格，不要把调试信息塞进去。
+
+---
+
+## 是否可以开始执行？
+
+可以。执行口径建议是：
+
+```text
+可以开始执行 Phase 5。
+
+严格按 2026-05-09-nl2sql-data-contracts.md 的 Task 1-9 顺序执行。
+
+不要扩大范围：
+- 不接真实 LLM / DB / schema grounding
+- 不新增 retry / QueryPlan / CLI ask
+- 不新增 domain/services/integrations
+- 不新增 stage/protocol/context/result model
+- 不改 artifact 文件格式
+- 不把 metadata key 写散到 workflow.py
+```
 
 ## 最终判断
 
 这份计划已经具备执行条件。它的关键优点是：
 
 ```text
-1. 先扩 GraphRuntime，而不是让 workflow 自己处理 LangGraph stream/get_state。
-2. artifact writer 独立，workflow 不直接 json.dump。
-3. nodes 继续纯净。
-4. graph_updates.jsonl 有明确标准化规则。
-5. output.metadata 只放字符串路径和 null。
-6. artifact 失败默认不影响业务 status。
-7. token_usage 只预留 null，不创建假文件。
-8. 最终验证覆盖架构边界。
+1. 把 options 收敛为 runtime_options。
+2. 让 nodes 不再直接读取原始 options。
+3. 给 prompt_payload 加 TypedDict 契约。
+4. 保持 graph state 适配 LangGraph 的 TypedDict(total=False) 模型。
+5. 把 prompt debug metadata 和 artifact metadata 来源分开。
+6. 用边界测试防止 GraphRuntime、nodes、workflow.py 重新污染。
+7. 用最终验证确认没有新增重型架构。
 ```
 
 一句话总结：
 
-**可以执行。执行前把 artifact_id 边界测试和 app.log 检查命令补一下，会更稳。**
+**可以执行。Phase 5 不会让项目“长壳”，但会把下一步接真实 LLM/schema/DB 前最容易乱的数据边界先收住。**
 
-[1]: https://docs.langchain.com/oss/python/langgraph/streaming?utm_source=chatgpt.com "Streaming - Docs by LangChain"
-[2]: https://docs.langchain.com/oss/python/langgraph/persistence?utm_source=chatgpt.com "Persistence - Docs by LangChain"
-[3]: https://jsonlines.org/?utm_source=chatgpt.com "JSON Lines"
+[1]: https://reference.langchain.com/python/langgraph/graph/state/StateGraph?utm_source=chatgpt.com "StateGraph | langgraph"
+[2]: https://typing.python.org/en/latest/spec/typeddict.html?utm_source=chatgpt.com "Typed dictionaries — typing documentation"
