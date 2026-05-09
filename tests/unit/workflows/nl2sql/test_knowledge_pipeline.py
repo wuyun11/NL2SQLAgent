@@ -107,6 +107,31 @@ def test_schema_linking_keeps_unselected_candidates_out_of_selected_context() ->
     assert any(item["target_name"] == "finance_salary_month" for item in result["dropped_candidates"])
 
 
+def test_schema_linking_does_not_add_sample_hr_context_without_candidates_or_hints() -> None:
+    question = {
+        "raw": "无关问题",
+        "text": "无关问题",
+        "keywords": [],
+        "business_terms": [],
+        "metric_hints": [],
+        "dimension_hints": [],
+        "filter_hints": [],
+        "time_hints": [],
+        "assumptions": [],
+    }
+    knowledge = build_sample_processed_database_knowledge()
+
+    result = build_schema_linking_result(
+        question,
+        knowledge,
+        {"candidates": [], "warnings": [], "metadata": {}},
+    )
+
+    assert result["selected_tables"] == []
+    assert result["relevant_columns"] == []
+    assert result["selected_relationships"] == []
+
+
 def test_sql_generation_context_is_clean_prompt_input() -> None:
     question = build_initial_processed_question("按部门统计在职员工人数")
     knowledge = build_sample_processed_database_knowledge()

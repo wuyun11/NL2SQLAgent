@@ -156,3 +156,24 @@ def test_build_prompt_payload_from_sql_generation_context_keeps_clean_boundary()
     assert "retrieval_method" not in serialized
     assert "vector_score" not in serialized
     assert "chunk_id" not in serialized
+
+
+def test_build_prompt_payload_from_sql_generation_context_groups_relevant_columns_by_table() -> None:
+    question = build_initial_processed_question("按部门统计在职员工人数")
+    knowledge = build_sample_processed_database_knowledge()
+    retrieval = build_knowledge_retrieval_result(question, knowledge)
+    linking = build_schema_linking_result(question, knowledge, retrieval)
+    context = build_sql_generation_context(question, knowledge, linking)
+
+    payload = build_prompt_payload_from_sql_generation_context(context)
+
+    tables = {table["name"]: table for table in payload["schema_context"]["tables"]}
+    assert [column["name"] for column in tables["hr_emp_base"]["columns"]] == [
+        "emp_stat_cd",
+        "emp_id",
+        "dept_id",
+    ]
+    assert [column["name"] for column in tables["hr_dept_dim"]["columns"]] == [
+        "dept_nm",
+        "dept_id",
+    ]

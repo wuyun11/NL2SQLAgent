@@ -94,6 +94,9 @@ def test_render_final_prompt_renders_relationships_and_value_bindings_from_sql_c
     )
 
     assert "Relationships:" in final_prompt
+    assert "- emp_stat_cd (filter): required by value binding" in final_prompt
+    assert "- emp_id (measure): metric hint employee_count" in final_prompt
+    assert "- dept_nm (dimension): dimension hint department" in final_prompt
     assert "hr_emp_base.dept_id = hr_dept_dim.dept_id" in final_prompt
     assert "Value Bindings:" in final_prompt
     assert "在职员工 -> hr_emp_base.emp_stat_cd = ACTIVE" in final_prompt

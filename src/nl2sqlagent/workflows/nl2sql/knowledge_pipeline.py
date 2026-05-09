@@ -372,7 +372,7 @@ def _add_relevant_column(
     for item in relevant_columns:
         if item.get("table_name") == table_name and item.get("column_name") == column_name:
             current_role = str(item.get("role", ""))
-            if priority.get(role, 0) > priority.get(current_role, 0):
+            if priority.get(role, 0) >= priority.get(current_role, 0):
                 item["role"] = role
                 item["reason"] = reason
             return
@@ -393,7 +393,6 @@ def build_schema_linking_result(
     knowledge: ProcessedDatabaseKnowledge,
     retrieval: KnowledgeRetrievalResult,
 ) -> SchemaLinkingResult:
-    del question
     tables_by_id = _knowledge_by_id(knowledge.get("tables", []))
     columns_by_id = _knowledge_by_id(knowledge.get("columns", []))
     value_bindings_by_id = _knowledge_by_id(knowledge.get("value_bindings", []))
@@ -469,22 +468,26 @@ def build_schema_linking_result(
                 }
             )
 
-    _add_relevant_column(
-        relevant_columns,
-        "hr_emp_base",
-        "emp_id",
-        "measure",
-        "metric hint employee_count",
-    )
-    _add_selected_table(selected_tables, "hr_emp_base", "primary", "required by metric hint")
-    _add_relevant_column(
-        relevant_columns,
-        "hr_dept_dim",
-        "dept_nm",
-        "dimension",
-        "dimension hint department",
-    )
-    _add_selected_table(selected_tables, "hr_dept_dim", "join_support", "required by dimension hint")
+    metric_hints = {str(value) for value in question.get("metric_hints", [])}
+    dimension_hints = {str(value) for value in question.get("dimension_hints", [])}
+    if "employee_count" in metric_hints:
+        _add_relevant_column(
+            relevant_columns,
+            "hr_emp_base",
+            "emp_id",
+            "measure",
+            "metric hint employee_count",
+        )
+        _add_selected_table(selected_tables, "hr_emp_base", "primary", "required by metric hint")
+    if "department" in dimension_hints:
+        _add_relevant_column(
+            relevant_columns,
+            "hr_dept_dim",
+            "dept_nm",
+            "dimension",
+            "dimension hint department",
+        )
+        _add_selected_table(selected_tables, "hr_dept_dim", "join_support", "required by dimension hint")
 
     selected_table_names = {item["table_name"] for item in selected_tables if item.get("table_name")}
     for relationship in knowledge.get("relationships", []):

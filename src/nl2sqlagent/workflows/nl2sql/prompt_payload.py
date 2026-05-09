@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TypedDict
+from typing import Any, TypedDict
 
 from nl2sqlagent.workflows.nl2sql.knowledge_contracts import SqlGenerationContext
 
@@ -144,12 +144,43 @@ def build_mock_prompt_payload(
     }
 
 
+def _prompt_columns_by_table(
+    schema_context: dict[str, Any],
+) -> dict[str, list[PromptColumn]]:
+    role_order = {
+        "filter": 0,
+        "measure": 1,
+        "dimension": 2,
+        "time": 3,
+        "join_key": 4,
+        "identifier": 5,
+        "display": 6,
+    }
+    columns_by_table: dict[str, list[PromptColumn]] = {}
+    for column in schema_context.get("columns", []):
+        table_name = str(column.get("table_name", ""))
+        column_name = str(column.get("column_name", ""))
+        if not table_name or not column_name:
+            continue
+        columns_by_table.setdefault(table_name, []).append(
+            {
+                "name": column_name,
+                "type": str(column.get("role", "")),
+                "description": str(column.get("reason", "")),
+            }
+        )
+    for columns in columns_by_table.values():
+        columns.sort(key=lambda item: (role_order.get(item["type"], 99), item["name"]))
+    return columns_by_table
+
+
 def build_prompt_payload_from_sql_generation_context(
     sql_generation_context: SqlGenerationContext,
 ) -> Nl2SqlPromptPayload:
     question = sql_generation_context.get("question", {})
     schema_context = sql_generation_context.get("schema_context", {})
     semantic_context = sql_generation_context.get("semantic_context", {})
+    columns_by_table = _prompt_columns_by_table(schema_context)
     return {
         "task": {
             "type": "nl2sql",
@@ -165,7 +196,7 @@ def build_prompt_payload_from_sql_generation_context(
                 {
                     "name": str(item.get("table_name", "")),
                     "description": str(item.get("reason", "")),
-                    "columns": [],
+                    "columns": columns_by_table.get(str(item.get("table_name", "")), []),
                 }
                 for item in schema_context.get("tables", [])
             ],
