@@ -55,6 +55,8 @@ def build_app(
         graph=nl2sql_graph,
         graph_runtime=graph_runtime,
         run_context=run_context,
+        log_dir=logging_runtime.log_dir,
+        logger=logging_runtime.logger,
     )
     return NL2SQLAgentApp(
         config=config,

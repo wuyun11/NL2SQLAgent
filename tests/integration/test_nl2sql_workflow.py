@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
+import logging
 from datetime import datetime
+from pathlib import Path
 
 from nl2sqlagent.bootstrap import build_app
 from nl2sqlagent.platform.config import CheckpointerSection, WorkflowSection
@@ -25,6 +28,18 @@ def _runtime() -> tuple[GraphRuntime, object, RunContext]:
             run_date="20260509",
             started_at=datetime(2026, 5, 9, 9, 0, 0),
         ),
+    )
+
+
+def _workflow_with_log_dir(tmp_path) -> Nl2SqlWorkflow:
+    runtime, checkpointer, run_context = _runtime()
+    graph = build_nl2sql_graph(checkpointer=checkpointer)
+    return Nl2SqlWorkflow(
+        graph=graph,
+        graph_runtime=runtime,
+        run_context=run_context,
+        log_dir=tmp_path / "logs" / run_context.run_date / run_context.run_id,
+        logger=logging.getLogger("test-nl2sql"),
     )
 
 
@@ -184,6 +199,61 @@ def test_nl2sql_workflow_stream_updates_exposes_build_prompt_update() -> None:
     )
 
 
+def test_nl2sql_workflow_run_writes_artifacts(tmp_path) -> None:
+    workflow = _workflow_with_log_dir(tmp_path)
+
+    output = workflow.run(
+        Nl2SqlInput(question="统计员工数量", request_id="request-1"),
+        thread_id="thread-nl2sql-artifact",
+    )
+
+    assert output.status == "success"
+    manifest_path = output.metadata["artifact_manifest_path"]
+    assert isinstance(manifest_path, str)
+
+    manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+    assert manifest["run_id"] == "run-nl2sql"
+    assert manifest["thread_id"] == "thread-nl2sql-artifact"
+    assert manifest["request_id"] == "request-1"
+    assert manifest["artifact_id"] == "request-1"
+    assert manifest["artifact_files"]["token_usage"] is None
+
+    final_prompt_path = Path(output.metadata["final_prompt_path"])
+    prompt_payload_path = Path(output.metadata["prompt_payload_path"])
+    graph_updates_path = Path(output.metadata["graph_updates_path"])
+    output_path = Path(output.metadata["output_path"])
+
+    assert "User Question:\n统计员工数量" in final_prompt_path.read_text(encoding="utf-8")
+    assert (
+        json.loads(prompt_payload_path.read_text(encoding="utf-8"))["question"]["normalized"]
+        == "统计员工数量"
+    )
+    assert any(
+        json.loads(line)["node"] == "build_prompt"
+        for line in graph_updates_path.read_text(encoding="utf-8").splitlines()
+    )
+    output_json = json.loads(output_path.read_text(encoding="utf-8"))
+    assert output_json["metadata"]["artifact_manifest_path"] == manifest_path
+    assert output_json["metadata"]["token_usage_path"] is None
+
+
+def test_nl2sql_workflow_clarification_writes_artifact_without_prompt_files(
+    tmp_path,
+) -> None:
+    workflow = _workflow_with_log_dir(tmp_path)
+
+    output = workflow.run(
+        Nl2SqlInput(question="   "),
+        thread_id="thread-nl2sql-blank-artifact",
+    )
+
+    assert output.status == "needs_clarification"
+    assert output.metadata["prompt_payload_path"] is None
+    assert output.metadata["final_prompt_path"] is None
+    assert output.metadata["graph_updates_path"] is not None
+    assert output.metadata["artifact_manifest_path"] is not None
+
+
 def test_build_app_exposes_nl2sql_workflow(tmp_path) -> None:
     config_dir = tmp_path / "config"
     config_dir.mkdir()
@@ -228,3 +298,6 @@ def test_build_app_exposes_nl2sql_workflow(tmp_path) -> None:
     assert output.status == "success"
     assert "User Question:\n统计员工数量" in output.metadata["final_prompt"]
     assert output.metadata["prompt_payload"]["question"]["normalized"] == "统计员工数量"
+    assert output.metadata["artifact_manifest_path"] is not None
+    assert Path(output.metadata["artifact_manifest_path"]).exists()
+    assert str(app.logging.log_dir) in output.metadata["artifact_manifest_path"]
