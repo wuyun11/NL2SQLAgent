@@ -456,7 +456,7 @@ semantic_tags:
   metric / dimension / filter / time / join_key 等标签。
 
 source:
-  database / manual / llm_candidate / history_sql。
+  database / manual。
 
 verified:
   是否人工确认或可信。
