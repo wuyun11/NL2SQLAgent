@@ -61,6 +61,7 @@ def build_app(
     project_root: Path | None = None,
     config_dir: Path | None = None,
     run_id: str | None = None,
+    sql_generator_override: SqlGenerator | None = None,
 ) -> NL2SQLAgentApp:
     resolved_project_root = find_project_root(project_root)
     if config_dir is None:
@@ -88,7 +89,7 @@ def build_app(
     )
     checkpointer = build_checkpointer(config.workflow)
     graph_runtime = GraphRuntime()
-    sql_generator = build_sql_generator(
+    sql_generator = sql_generator_override or build_sql_generator(
         sql_generator=config.model.sql_generator,
         project_root=resolved_project_root,
     )

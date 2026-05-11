@@ -87,8 +87,8 @@ def build_sample_processed_database_knowledge() -> ProcessedDatabaseKnowledge:
                 "business_name": "临时导入记录",
                 "description": "临时导入中间表。",
                 "aliases": ["临时导入"],
-                "table_type": "other",
-                "enabled": False,
+                "table_type": "staging",
+                "enabled": True,
                 "source": "manual",
                 "verified": False,
             },
@@ -125,7 +125,12 @@ def build_sample_processed_database_knowledge() -> ProcessedDatabaseKnowledge:
                 "business_name": "员工状态编码",
                 "data_type": "TEXT",
                 "description": "员工状态编码。",
-                "aliases": ["状态编码", "在职状态"],
+                "aliases": [
+                    "状态编码",
+                    "在职状态",
+                    "active_employee",
+                    "inactive_employee",
+                ],
                 "semantic_tags": ["filter"],
                 "source": "manual",
                 "verified": True,
@@ -154,6 +159,18 @@ def build_sample_processed_database_knowledge() -> ProcessedDatabaseKnowledge:
                 "source": "manual",
                 "verified": True,
             },
+            {
+                "id": "column:hr_emp_base.emp_type_cd",
+                "table_name": "hr_emp_base",
+                "name": "emp_type_cd",
+                "business_name": "员工类型编码",
+                "data_type": "TEXT",
+                "description": "员工类型编码。",
+                "aliases": ["员工类型", "正式员工类型", "full_time_employee"],
+                "semantic_tags": ["filter"],
+                "source": "manual",
+                "verified": True,
+            },
         ],
         "relationships": [
             {
@@ -179,7 +196,29 @@ def build_sample_processed_database_knowledge() -> ProcessedDatabaseKnowledge:
                 "description": "ACTIVE 表示当前在职状态",
                 "source": "manual",
                 "verified": True,
-            }
+            },
+            {
+                "id": "value:inactive_employee",
+                "business_term": "离职员工",
+                "table_name": "hr_emp_base",
+                "column_name": "emp_stat_cd",
+                "operator": "=",
+                "value": "INACTIVE",
+                "description": "INACTIVE 表示离职状态",
+                "source": "manual",
+                "verified": True,
+            },
+            {
+                "id": "value:full_time_employee",
+                "business_term": "正式员工",
+                "table_name": "hr_emp_base",
+                "column_name": "emp_type_cd",
+                "operator": "=",
+                "value": "FULL_TIME",
+                "description": "FULL_TIME 表示正式员工",
+                "source": "manual",
+                "verified": True,
+            },
         ],
         "business_terms": [],
     }
@@ -196,6 +235,16 @@ def _normalized_terms(question: ProcessedQuestion) -> list[str]:
     )
     terms: list[str] = []
     for field in fields:
+        for value in question.get(field, []):
+            text = str(value).strip().lower()
+            if text:
+                terms.append(text)
+    return sorted(set(terms))
+
+
+def _normalized_binding_terms(question: ProcessedQuestion) -> list[str]:
+    terms: list[str] = []
+    for field in ("business_terms", "filter_hints"):
         for value in question.get(field, []):
             text = str(value).strip().lower()
             if text:
@@ -220,7 +269,7 @@ def _match_score(texts: list[str], terms: list[str]) -> tuple[float, str, list[s
             hits.append(term)
             source = "alias"
             score = max(score, 1.0)
-        elif any(term in text for text in texts):
+        elif len(term) >= 3 and any(term in text for text in texts):
             hits.append(term)
             source = "description"
             score = max(score, 0.7)
@@ -232,6 +281,7 @@ def build_knowledge_retrieval_result(
     knowledge: ProcessedDatabaseKnowledge,
 ) -> KnowledgeRetrievalResult:
     terms = _normalized_terms(question)
+    binding_terms = _normalized_binding_terms(question)
     enabled_tables = _table_enabled_map(knowledge)
     candidates: list[KnowledgeCandidate] = []
     seen: set[tuple[str, str]] = set()
@@ -283,9 +333,10 @@ def build_knowledge_retrieval_result(
             *[str(tag).lower() for tag in column.get("semantic_tags", [])],
         ]
         score, match_source, matched_terms = _match_score(texts, terms)
+        semantic_tags = {str(tag).lower() for tag in column.get("semantic_tags", [])}
         if score <= 0:
             continue
-        if any(term in {tag.lower() for tag in column.get("semantic_tags", [])} for term in terms):
+        if any(term in semantic_tags for term in terms):
             score = max(score, 0.85)
             match_source = "semantic_tag"
         add_candidate(
@@ -304,11 +355,13 @@ def build_knowledge_retrieval_result(
         table_name = str(value_binding.get("table_name", ""))
         if not table_name or not enabled_tables.get(table_name, True):
             continue
+        if not binding_terms:
+            continue
         texts = [
             str(value_binding.get("business_term", "")).lower(),
             str(value_binding.get("description", "")).lower(),
         ]
-        score, match_source, matched_terms = _match_score(texts, terms)
+        score, match_source, matched_terms = _match_score(texts, binding_terms)
         if score <= 0:
             continue
         add_candidate(
@@ -411,14 +464,33 @@ def build_schema_linking_result(
         score = float(candidate.get("score", 0.0))
         if kind == "table":
             table = tables_by_id.get(knowledge_id)
-            if (
-                not table
-                or not bool(table.get("enabled", True))
-                or score < 0.5
-                or str(candidate.get("retrieval_method", "structured")) != "structured"
-            ):
+            if not table or score < 0.5 or str(
+                candidate.get("retrieval_method", "structured")
+            ) != "structured":
                 dropped_candidates.append(
                     {"target_type": "table", "target_name": knowledge_id.split(":")[-1], "reason": "score_too_low", "score": score}
+                )
+                continue
+            if not bool(table.get("enabled", True)):
+                dropped_candidates.append(
+                    {
+                        "target_type": "table",
+                        "target_name": str(table.get("name", knowledge_id.split(":")[-1])),
+                        "reason": "table_disabled",
+                        "score": score,
+                    }
+                )
+                continue
+            table_type = str(table.get("table_type", "")).lower()
+            verified = bool(table.get("verified", False))
+            if table_type in {"staging", "temporary", "temp"} or not verified:
+                dropped_candidates.append(
+                    {
+                        "target_type": "table",
+                        "target_name": str(table.get("name", knowledge_id.split(":")[-1])),
+                        "reason": "unverified_or_staging_table",
+                        "score": score,
+                    }
                 )
                 continue
             role = "primary" if table.get("name") == "hr_emp_base" else "join_support"
@@ -530,6 +602,12 @@ def build_schema_linking_result(
             continue
         table_name = knowledge_id.split(":")[-1]
         if table_name not in selected_table_names:
+            if any(
+                item.get("target_type") == "table"
+                and item.get("target_name") == table_name
+                for item in dropped_candidates
+            ):
+                continue
             dropped_candidates.append(
                 {
                     "target_type": "table",

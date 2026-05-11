@@ -8,6 +8,8 @@
 
 **Tech Stack:** Python 3.12, LangGraph workflow already in the repo, `TypedDict` contracts, JSON case files, existing artifact writer, `pytest`, optional real LLM through existing `SqlGenerator`.
 
+**Implementation Status:** Tasks 1-9 and Task 10 Steps 1-4 are implemented and verified on 2026-05-11. Task 10 Step 5 remains intentionally unchecked because the real LLM smoke test is optional and must be run only when explicitly requested.
+
 ---
 
 ## Source Documents
@@ -199,7 +201,7 @@ For `case_005_drop_import_table`, make `tmp_import_record` enabled but unverifie
 - Modify: `src/nl2sqlagent/workflows/nl2sql/artifacts.py`
 - Test: `tests/integration/test_nl2sql_workflow.py`
 
-- [ ] **Step 1: Write failing integration test for input propagation**
+- [x] **Step 1: Write failing integration test for input propagation**
 
 Add a test that constructs `Nl2SqlInput` with `case_id`, `processed_question`, and `processed_database_knowledge`, runs the workflow with `FakeSqlGenerator`, and asserts:
 
@@ -215,7 +217,7 @@ Then read `input.json` and assert:
 assert input_json["case_id"] == "case_001_active_employee_count"
 ```
 
-- [ ] **Step 2: Run test and verify it fails**
+- [x] **Step 2: Run test and verify it fails**
 
 ```powershell
 $py = (Get-Content .\.ai\local\python_path.txt -Encoding UTF8).Trim()
@@ -224,7 +226,7 @@ $py = (Get-Content .\.ai\local\python_path.txt -Encoding UTF8).Trim()
 
 Expected: FAIL because `Nl2SqlInput` has no fields and `workflow._graph_input` does not propagate them.
 
-- [ ] **Step 3: Add optional fields to `Nl2SqlInput`**
+- [x] **Step 3: Add optional fields to `Nl2SqlInput`**
 
 In `src/nl2sqlagent/workflows/nl2sql/input.py`:
 
@@ -246,7 +248,7 @@ class Nl2SqlInput:
     processed_database_knowledge: ProcessedDatabaseKnowledge | None = None
 ```
 
-- [ ] **Step 4: Propagate fields into graph state**
+- [x] **Step 4: Propagate fields into graph state**
 
 In `Nl2SqlWorkflow._graph_input`, add:
 
@@ -258,7 +260,7 @@ In `Nl2SqlWorkflow._graph_input`, add:
 
 Do not put these into `runtime_options`.
 
-- [ ] **Step 5: Write `case_id` to `input.json`**
+- [x] **Step 5: Write `case_id` to `input.json`**
 
 In `write_nl2sql_artifacts`, add:
 
@@ -268,7 +270,7 @@ In `write_nl2sql_artifacts`, add:
 
 Do not duplicate full `processed_question` / `processed_database_knowledge` into `input.json`; they are already in `output.json.metadata`.
 
-- [ ] **Step 6: Run test and verify it still fails at `build_prompt_node`**
+- [x] **Step 6: Run test and verify it still fails at `build_prompt_node`**
 
 Expected: it may still use temporary builders. That is okay; Task 2 fixes node behavior.
 
@@ -281,7 +283,7 @@ Expected: it may still use temporary builders. That is okay; Task 2 fixes node b
 - Test: `tests/unit/workflows/nl2sql/test_nodes.py`
 - Test: `tests/integration/test_nl2sql_workflow.py`
 
-- [ ] **Step 1: Write failing node test**
+- [x] **Step 1: Write failing node test**
 
 Add:
 
@@ -315,13 +317,13 @@ def test_build_prompt_node_uses_manual_processed_question_and_knowledge() -> Non
 
 Import `build_sample_processed_database_knowledge` from `knowledge_pipeline`.
 
-- [ ] **Step 2: Run test and verify it fails**
+- [x] **Step 2: Run test and verify it fails**
 
 ```powershell
 & $py -m pytest tests/unit/workflows/nl2sql/test_nodes.py::test_build_prompt_node_uses_manual_processed_question_and_knowledge -q --basetemp .pytest_tmp
 ```
 
-- [ ] **Step 3: Modify `build_prompt_node` minimally**
+- [x] **Step 3: Modify `build_prompt_node` minimally**
 
 Change:
 
@@ -340,7 +342,7 @@ processed_database_knowledge = (
 )
 ```
 
-- [ ] **Step 4: Run node and integration tests**
+- [x] **Step 4: Run node and integration tests**
 
 ```powershell
 & $py -m pytest tests/unit/workflows/nl2sql/test_nodes.py tests/integration/test_nl2sql_workflow.py -q --basetemp .pytest_tmp
@@ -356,7 +358,7 @@ Expected: PASS.
 - Create: `src/nl2sqlagent/workflows/nl2sql/sample_cases.py`
 - Create: `tests/unit/workflows/nl2sql/test_sample_cases.py`
 
-- [ ] **Step 1: Write failing tests for loader**
+- [x] **Step 1: Write failing tests for loader**
 
 Test cases:
 
@@ -369,13 +371,13 @@ def test_load_sample_case_file_rejects_duplicate_case_ids(tmp_path: Path) -> Non
 
 Use a tiny temporary JSON file in tests. Do not depend on the full Phase8 JSON yet.
 
-- [ ] **Step 2: Run tests and verify they fail**
+- [x] **Step 2: Run tests and verify they fail**
 
 ```powershell
 & $py -m pytest tests/unit/workflows/nl2sql/test_sample_cases.py -q --basetemp .pytest_tmp
 ```
 
-- [ ] **Step 3: Implement `sample_cases.py`**
+- [x] **Step 3: Implement `sample_cases.py`**
 
 Use dataclasses, not a deep class hierarchy:
 
@@ -443,7 +445,7 @@ Validation rules:
 - shared `knowledge` must contain `dialect`, `tables`, `columns`, `relationships`, `value_bindings`, `business_terms`.
 - `expected_prompt_contains` and `expected_sql_shape` must not be empty.
 
-- [ ] **Step 4: Run loader tests**
+- [x] **Step 4: Run loader tests**
 
 ```powershell
 & $py -m pytest tests/unit/workflows/nl2sql/test_sample_cases.py -q --basetemp .pytest_tmp
@@ -459,7 +461,7 @@ Expected: PASS.
 - Create: `examples/nl2sql_cases/phase8_cases.json`
 - Test: `tests/unit/workflows/nl2sql/test_sample_cases.py`
 
-- [ ] **Step 1: Add test that loads real Phase8 case file**
+- [x] **Step 1: Add test that loads real Phase8 case file**
 
 ```python
 def test_phase8_case_file_loads_all_expected_cases() -> None:
@@ -476,13 +478,13 @@ def test_phase8_case_file_loads_all_expected_cases() -> None:
     ]
 ```
 
-- [ ] **Step 2: Run test and verify it fails**
+- [x] **Step 2: Run test and verify it fails**
 
 ```powershell
 & $py -m pytest tests/unit/workflows/nl2sql/test_sample_cases.py::test_phase8_case_file_loads_all_expected_cases -q --basetemp .pytest_tmp
 ```
 
-- [ ] **Step 3: Create `phase8_cases.json`**
+- [x] **Step 3: Create `phase8_cases.json`**
 
 Use the data shape above.
 
@@ -548,7 +550,7 @@ excludes:
   离职员工 -> hr_emp_base.emp_stat_cd = INACTIVE
 ```
 
-- [ ] **Step 4: Run loader tests**
+- [x] **Step 4: Run loader tests**
 
 ```powershell
 & $py -m pytest tests/unit/workflows/nl2sql/test_sample_cases.py -q --basetemp .pytest_tmp
@@ -565,7 +567,7 @@ Expected: PASS.
 - Test: `tests/unit/workflows/nl2sql/test_knowledge_pipeline.py`
 - Test: `tests/unit/workflows/nl2sql/test_sample_cases.py`
 
-- [ ] **Step 1: Write tests for unverified/staging table drop**
+- [x] **Step 1: Write tests for unverified/staging table drop**
 
 Add a focused test where retrieval contains a table candidate for `tmp_import_record`, knowledge has that table with `verified=False` or `table_type="staging"`, and `build_schema_linking_result` returns:
 
@@ -580,13 +582,13 @@ assert {
 
 Do not rely on the LLM for this test.
 
-- [ ] **Step 2: Run test and verify it fails**
+- [x] **Step 2: Run test and verify it fails**
 
 ```powershell
 & $py -m pytest tests/unit/workflows/nl2sql/test_knowledge_pipeline.py::test_schema_linking_drops_unverified_staging_table_candidate -q --basetemp .pytest_tmp
 ```
 
-- [ ] **Step 3: Implement minimal drop rule**
+- [x] **Step 3: Implement minimal drop rule**
 
 In `build_schema_linking_result`, when handling `kind == "table"`:
 
@@ -605,7 +607,7 @@ if table_type in {"staging", "temporary", "temp"} or not verified:
 
 Keep enabled table filtering intact.
 
-- [ ] **Step 4: Make role assignment less hardcoded only if tests require it**
+- [x] **Step 4: Make role assignment less hardcoded only if tests require it**
 
 Current code uses:
 
@@ -615,7 +617,7 @@ role = "primary" if table.get("name") == "hr_emp_base" else "join_support"
 
 For Phase8, this is acceptable because the manual cases are HR-focused. Do not generalize unless a test fails for a concrete Phase8 case.
 
-- [ ] **Step 5: Run knowledge pipeline tests**
+- [x] **Step 5: Run knowledge pipeline tests**
 
 ```powershell
 & $py -m pytest tests/unit/workflows/nl2sql/test_knowledge_pipeline.py -q --basetemp .pytest_tmp
@@ -630,7 +632,7 @@ Expected: PASS.
 **Files:**
 - Test: `tests/integration/test_nl2sql_case_runner.py` or `tests/integration/test_nl2sql_phase8_cases.py`
 
-- [ ] **Step 1: Write fake-generator integration test for all cases**
+- [x] **Step 1: Write fake-generator integration test for all cases**
 
 For each loaded case:
 
@@ -662,13 +664,13 @@ dropped_tables = {item["target_name"] for item in linking["dropped_candidates"]}
 assert set(case.expected_schema_linking.dropped_tables) <= dropped_tables
 ```
 
-- [ ] **Step 2: Run test and verify it fails because `build_app` lacks override**
+- [x] **Step 2: Run test and verify it fails because `build_app` lacks override**
 
 ```powershell
 & $py -m pytest tests/integration/test_nl2sql_case_runner.py -q --basetemp .pytest_tmp
 ```
 
-- [ ] **Step 3: Add optional `sql_generator_override` to `build_app`**
+- [x] **Step 3: Add optional `sql_generator_override` to `build_app`**
 
 In `container.py`:
 
@@ -686,7 +688,7 @@ def build_app(
 
 Keep `build_sql_generator` unchanged.
 
-- [ ] **Step 4: Run integration test**
+- [x] **Step 4: Run integration test**
 
 ```powershell
 & $py -m pytest tests/integration/test_nl2sql_case_runner.py -q --basetemp .pytest_tmp
@@ -703,7 +705,7 @@ Expected: PASS.
 - Modify: `src/nl2sqlagent/interfaces/cli/main.py`
 - Test: `tests/integration/test_startup_cli.py` or create `tests/integration/test_nl2sql_case_cli.py`
 
-- [ ] **Step 1: Write CLI tests**
+- [x] **Step 1: Write CLI tests**
 
 Add tests:
 
@@ -715,13 +717,13 @@ def test_cli_run_nl2sql_cases_requires_real_llm_flag_for_provider_call(tmp_path:
 
 The fake CLI test should run without `DASHSCOPE_API_KEY`.
 
-- [ ] **Step 2: Run tests and verify they fail**
+- [x] **Step 2: Run tests and verify they fail**
 
 ```powershell
 & $py -m pytest tests/integration/test_nl2sql_case_cli.py -q --basetemp .pytest_tmp
 ```
 
-- [ ] **Step 3: Implement command module**
+- [x] **Step 3: Implement command module**
 
 In `nl2sql_cases.py`, implement:
 
@@ -763,7 +765,7 @@ Behavior:
 }
 ```
 
-- [ ] **Step 4: Wire CLI parser**
+- [x] **Step 4: Wire CLI parser**
 
 Add command choice:
 
@@ -785,7 +787,7 @@ Default cases path:
 examples/nl2sql_cases/phase8_cases.json
 ```
 
-- [ ] **Step 5: Run CLI tests**
+- [x] **Step 5: Run CLI tests**
 
 ```powershell
 & $py -m pytest tests/integration/test_nl2sql_case_cli.py tests/integration/test_startup_cli.py -q --basetemp .pytest_tmp
@@ -800,7 +802,7 @@ Expected: PASS.
 **Files:**
 - Modify: `tests/unit/workflows/nl2sql/test_contracts.py`
 
-- [ ] **Step 1: Add or extend guards**
+- [x] **Step 1: Add or extend guards**
 
 Add checks:
 
@@ -827,7 +829,7 @@ def test_sample_cases_do_not_import_llm_provider() -> None:
 
 Add guard that `nodes.py` still does not import provider packages.
 
-- [ ] **Step 2: Run contract tests**
+- [x] **Step 2: Run contract tests**
 
 ```powershell
 & $py -m pytest tests/unit/workflows/nl2sql/test_contracts.py -q --basetemp .pytest_tmp
@@ -843,7 +845,7 @@ Expected: PASS.
 - Modify: `docs/project/Phase8_NL2SQL人工样例验证设计.md`
 - Modify: `docs/project/Phase7_NL2SQL真实运行产物说明.md` only if needed
 
-- [ ] **Step 1: Add command examples**
+- [x] **Step 1: Add command examples**
 
 In `Phase8_NL2SQL人工样例验证设计.md`, add a short section:
 
@@ -866,7 +868,7 @@ Explain:
 - real run consumes LLM tokens and checks actual SQL behavior.
 - review order remains `manifest -> output.metadata -> prompt_payload -> final_prompt -> llm_result`.
 
-- [ ] **Step 2: Update current-stage summary if needed**
+- [x] **Step 2: Update current-stage summary if needed**
 
 If implementation changes the next-stage status, update `docs/project/NL2SQL当前阶段总结与后续路线.md` only in a small paragraph. Do not rewrite the whole doc.
 
@@ -877,7 +879,7 @@ If implementation changes the next-stage status, update `docs/project/NL2SQL当�
 **Files:**
 - No new code unless verification reveals a bug.
 
-- [ ] **Step 1: Run focused test suite**
+- [x] **Step 1: Run focused test suite**
 
 ```powershell
 $py = (Get-Content .\.ai\local\python_path.txt -Encoding UTF8).Trim()
@@ -893,7 +895,7 @@ $py = (Get-Content .\.ai\local\python_path.txt -Encoding UTF8).Trim()
 
 Expected: PASS.
 
-- [ ] **Step 2: Run full default tests**
+- [x] **Step 2: Run full default tests**
 
 ```powershell
 & $py -m pytest -q --basetemp .pytest_tmp
@@ -901,7 +903,7 @@ Expected: PASS.
 
 Expected: PASS with cloud tests deselected.
 
-- [ ] **Step 3: Run fake sample CLI once**
+- [x] **Step 3: Run fake sample CLI once**
 
 ```powershell
 & $py -m nl2sqlagent.interfaces.cli.main run-nl2sql-cases --run-id phase8-fake-cases
@@ -914,7 +916,7 @@ Expected:
 - each case status is `success`.
 - artifacts appear under `workspace/logs/{run_date}/phase8-fake-cases/artifacts/nl2sql/{case_id}/`.
 
-- [ ] **Step 4: Inspect one artifact**
+- [x] **Step 4: Inspect one artifact**
 
 Open:
 

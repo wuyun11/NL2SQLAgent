@@ -186,6 +186,7 @@ def write_nl2sql_artifacts(
             "run_date": run_context.run_date,
             "thread_id": resolved_thread_id,
             "request_id": input.request_id,
+            "case_id": input.case_id,
             "user_id": input.user_id,
             "database_key": input.database_key,
             "raw_question": input.question,

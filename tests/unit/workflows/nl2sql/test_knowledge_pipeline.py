@@ -208,3 +208,36 @@ def test_pseudo_vector_candidate_cannot_bypass_schema_linking_result() -> None:
     assert "chunk_id" not in str(payload)
     assert "vector_score" not in final_prompt
     assert "chunk_id" not in final_prompt
+
+
+def test_schema_linking_drops_unverified_staging_table_candidate() -> None:
+    question = build_initial_processed_question("统计临时导入表里在职员工人数")
+    knowledge = build_sample_processed_database_knowledge()
+    retrieval = {
+        "candidates": [
+            {
+                "kind": "table",
+                "knowledge_id": "table:tmp_import_record",
+                "score": 1.0,
+                "matched_terms": ["临时导入"],
+                "retrieval_method": "structured",
+            }
+        ],
+        "warnings": [],
+        "metadata": {},
+    }
+    result = build_schema_linking_result(question, knowledge, retrieval)
+    selected_table_names = {item["table_name"] for item in result["selected_tables"]}
+    assert "tmp_import_record" not in selected_table_names
+    assert {
+        "target_type": "table",
+        "target_name": "tmp_import_record",
+        "reason": "unverified_or_staging_table",
+        "score": 1.0,
+    } in result["dropped_candidates"]
+    dropped_tmp_import = [
+        item
+        for item in result["dropped_candidates"]
+        if item["target_type"] == "table" and item["target_name"] == "tmp_import_record"
+    ]
+    assert len(dropped_tmp_import) == 1

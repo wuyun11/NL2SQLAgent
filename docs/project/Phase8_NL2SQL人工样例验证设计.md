@@ -697,3 +697,24 @@ use_llm_generate。
 再验证样例覆盖。
 最后才消耗真实 LLM token 看生成效果。
 ```
+
+## 12. 运行与评审命令
+
+```powershell
+$py = (Get-Content .\.ai\local\python_path.txt -Encoding UTF8).Trim()
+
+# fake generator，不消耗真实 token
+& $py -m nl2sqlagent.interfaces.cli.main run-nl2sql-cases --run-id phase8-fake-cases
+
+# 只跑一个 case（fake generator）
+& $py -m nl2sqlagent.interfaces.cli.main run-nl2sql-cases --case-id case_002_active_employee_by_department --run-id phase8-one-case
+
+# 显式启用真实 LLM
+& $py -m nl2sqlagent.interfaces.cli.main run-nl2sql-cases --real-llm --case-id case_002_active_employee_by_department --run-id phase8-real-case
+```
+
+说明：
+
+- fake run 用于验证 artifact 产出与 prompt expectation，不消耗真实 LLM token。
+- real run 才会调用配置里的 provider，用于检查真实 SQL 生成效果。
+- 评审顺序保持：`manifest -> output.metadata -> prompt_payload -> final_prompt -> llm_result`。

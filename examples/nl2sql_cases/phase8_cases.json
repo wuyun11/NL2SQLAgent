@@ -1,0 +1,110 @@
+{
+  "version": "phase8.manual-cases.v1",
+  "knowledge": {
+    "dialect": "sqlite",
+    "tables": [
+      {"id": "table:hr_emp_base", "name": "hr_emp_base", "business_name": "员工基础信息", "description": "员工基础信息表", "aliases": ["员工"], "table_type": "entity", "enabled": true, "source": "manual", "verified": true},
+      {"id": "table:hr_dept_dim", "name": "hr_dept_dim", "business_name": "部门维度", "description": "部门维表", "aliases": ["部门"], "table_type": "dimension", "enabled": true, "source": "manual", "verified": true},
+      {"id": "table:tmp_import_record", "name": "tmp_import_record", "business_name": "临时导入记录", "description": "临时导入数据", "aliases": ["临时导入"], "table_type": "staging", "enabled": true, "source": "manual", "verified": false},
+      {"id": "table:sys_user_log", "name": "sys_user_log", "business_name": "系统日志", "description": "系统日志", "aliases": ["日志"], "table_type": "other", "enabled": true, "source": "manual", "verified": true},
+      {"id": "table:finance_salary_month", "name": "finance_salary_month", "business_name": "薪资月报", "description": "薪资月报事实表", "aliases": ["薪资"], "table_type": "fact", "enabled": true, "source": "manual", "verified": true}
+    ],
+    "columns": [
+      {"id": "column:hr_emp_base.emp_id", "table_name": "hr_emp_base", "name": "emp_id", "business_name": "员工ID", "data_type": "TEXT", "description": "", "aliases": ["员工ID"], "semantic_tags": ["identifier", "measure"], "source": "manual", "verified": true},
+      {"id": "column:hr_emp_base.dept_id", "table_name": "hr_emp_base", "name": "dept_id", "business_name": "部门ID", "data_type": "TEXT", "description": "", "aliases": ["部门ID"], "semantic_tags": ["join_key", "dimension"], "source": "manual", "verified": true},
+      {"id": "column:hr_emp_base.emp_stat_cd", "table_name": "hr_emp_base", "name": "emp_stat_cd", "business_name": "员工状态编码", "data_type": "TEXT", "description": "", "aliases": ["员工状态"], "semantic_tags": ["filter"], "source": "manual", "verified": true},
+      {"id": "column:hr_emp_base.emp_type_cd", "table_name": "hr_emp_base", "name": "emp_type_cd", "business_name": "员工类型编码", "data_type": "TEXT", "description": "", "aliases": ["员工类型"], "semantic_tags": ["filter"], "source": "manual", "verified": true},
+      {"id": "column:hr_dept_dim.dept_id", "table_name": "hr_dept_dim", "name": "dept_id", "business_name": "部门ID", "data_type": "TEXT", "description": "", "aliases": ["部门ID"], "semantic_tags": ["join_key"], "source": "manual", "verified": true},
+      {"id": "column:hr_dept_dim.dept_nm", "table_name": "hr_dept_dim", "name": "dept_nm", "business_name": "部门名称", "data_type": "TEXT", "description": "", "aliases": ["部门名称"], "semantic_tags": ["dimension", "display"], "source": "manual", "verified": true}
+    ],
+    "relationships": [
+      {"id": "relationship:hr_emp_base.dept_id=hr_dept_dim.dept_id", "left_table": "hr_emp_base", "left_column": "dept_id", "right_table": "hr_dept_dim", "right_column": "dept_id", "relationship_type": "many_to_one", "description": "员工表关联部门表", "source": "manual", "verified": true}
+    ],
+    "value_bindings": [
+      {"id": "value:active_employee", "business_term": "在职员工", "table_name": "hr_emp_base", "column_name": "emp_stat_cd", "operator": "=", "value": "ACTIVE", "description": "", "source": "manual", "verified": true},
+      {"id": "value:inactive_employee", "business_term": "离职员工", "table_name": "hr_emp_base", "column_name": "emp_stat_cd", "operator": "=", "value": "INACTIVE", "description": "", "source": "manual", "verified": true},
+      {"id": "value:full_time_employee", "business_term": "正式员工", "table_name": "hr_emp_base", "column_name": "emp_type_cd", "operator": "=", "value": "FULL_TIME", "description": "", "source": "manual", "verified": true}
+    ],
+    "business_terms": []
+  },
+  "cases": [
+    {
+      "case_id": "case_001_active_employee_count",
+      "title": "统计在职员工人数",
+      "risk_focus": "single table + value binding",
+      "raw_question": "统计在职员工人数",
+      "processed_question": {"raw": "统计在职员工人数", "text": "统计在职员工人数", "keywords": ["在职", "员工", "人数"], "business_terms": ["在职员工"], "metric_hints": ["employee_count"], "dimension_hints": [], "filter_hints": ["active_employee"], "time_hints": [], "assumptions": []},
+      "expected_schema_linking": {"selected_tables": ["hr_emp_base"], "relevant_columns": ["hr_emp_base.emp_id", "hr_emp_base.emp_stat_cd"], "relationships": [], "value_bindings": ["hr_emp_base.emp_stat_cd=ACTIVE"], "dropped_tables": []},
+      "expected_prompt_contains": ["Table: hr_emp_base", "在职员工 -> hr_emp_base.emp_stat_cd = ACTIVE"],
+      "expected_prompt_excludes": ["Table: hr_dept_dim", "Table: tmp_import_record"],
+      "expected_sql_shape": ["COUNT", "hr_emp_base", "emp_stat_cd", "ACTIVE"],
+      "reference_sql": "SELECT COUNT(emp_id) AS employee_count FROM hr_emp_base WHERE emp_stat_cd = 'ACTIVE' LIMIT 100",
+      "review_notes": ""
+    },
+    {
+      "case_id": "case_002_active_employee_by_department",
+      "title": "按部门统计在职员工人数",
+      "risk_focus": "table join + value binding",
+      "raw_question": "按部门统计在职员工人数",
+      "processed_question": {"raw": "按部门统计在职员工人数", "text": "按部门统计在职员工人数", "keywords": ["在职", "员工", "人数", "部门"], "business_terms": ["在职员工"], "metric_hints": ["employee_count"], "dimension_hints": ["department"], "filter_hints": ["active_employee"], "time_hints": [], "assumptions": []},
+      "expected_schema_linking": {"selected_tables": ["hr_emp_base", "hr_dept_dim"], "relevant_columns": ["hr_emp_base.emp_id", "hr_emp_base.dept_id", "hr_dept_dim.dept_nm"], "relationships": ["hr_emp_base.dept_id=hr_dept_dim.dept_id"], "value_bindings": ["hr_emp_base.emp_stat_cd=ACTIVE"], "dropped_tables": []},
+      "expected_prompt_contains": ["Table: hr_emp_base", "Table: hr_dept_dim", "hr_emp_base.dept_id = hr_dept_dim.dept_id", "在职员工 -> hr_emp_base.emp_stat_cd = ACTIVE"],
+      "expected_prompt_excludes": ["Table: tmp_import_record"],
+      "expected_sql_shape": ["GROUP BY", "hr_emp_base", "hr_dept_dim", "ACTIVE"],
+      "reference_sql": "SELECT d.dept_nm, COUNT(e.emp_id) AS employee_count FROM hr_emp_base e JOIN hr_dept_dim d ON e.dept_id = d.dept_id WHERE e.emp_stat_cd = 'ACTIVE' GROUP BY d.dept_nm LIMIT 100",
+      "review_notes": ""
+    },
+    {
+      "case_id": "case_003_inactive_employee_by_department",
+      "title": "按部门统计离职员工人数",
+      "risk_focus": "value binding conflict",
+      "raw_question": "按部门统计离职员工人数",
+      "processed_question": {"raw": "按部门统计离职员工人数", "text": "按部门统计离职员工人数", "keywords": ["离职", "员工", "人数", "部门"], "business_terms": ["离职员工"], "metric_hints": ["employee_count"], "dimension_hints": ["department"], "filter_hints": ["inactive_employee"], "time_hints": [], "assumptions": []},
+      "expected_schema_linking": {"selected_tables": ["hr_emp_base", "hr_dept_dim"], "relevant_columns": ["hr_emp_base.emp_stat_cd", "hr_dept_dim.dept_nm"], "relationships": ["hr_emp_base.dept_id=hr_dept_dim.dept_id"], "value_bindings": ["hr_emp_base.emp_stat_cd=INACTIVE"], "dropped_tables": []},
+      "expected_prompt_contains": ["离职员工 -> hr_emp_base.emp_stat_cd = INACTIVE"],
+      "expected_prompt_excludes": ["在职员工 -> hr_emp_base.emp_stat_cd = ACTIVE"],
+      "expected_sql_shape": ["INACTIVE", "GROUP BY", "hr_dept_dim"],
+      "reference_sql": "SELECT d.dept_nm, COUNT(e.emp_id) AS employee_count FROM hr_emp_base e JOIN hr_dept_dim d ON e.dept_id = d.dept_id WHERE e.emp_stat_cd = 'INACTIVE' GROUP BY d.dept_nm LIMIT 100",
+      "review_notes": ""
+    },
+    {
+      "case_id": "case_004_full_time_employee_count",
+      "title": "统计正式员工人数",
+      "risk_focus": "employee type binding",
+      "raw_question": "统计正式员工人数",
+      "processed_question": {"raw": "统计正式员工人数", "text": "统计正式员工人数", "keywords": ["正式", "员工", "人数"], "business_terms": ["正式员工"], "metric_hints": ["employee_count"], "dimension_hints": [], "filter_hints": ["full_time_employee"], "time_hints": [], "assumptions": []},
+      "expected_schema_linking": {"selected_tables": ["hr_emp_base"], "relevant_columns": ["hr_emp_base.emp_type_cd"], "relationships": [], "value_bindings": ["hr_emp_base.emp_type_cd=FULL_TIME"], "dropped_tables": []},
+      "expected_prompt_contains": ["正式员工 -> hr_emp_base.emp_type_cd = FULL_TIME", "emp_type_cd"],
+      "expected_prompt_excludes": ["Table: tmp_import_record"],
+      "expected_sql_shape": ["FULL_TIME", "COUNT", "emp_type_cd"],
+      "reference_sql": "SELECT COUNT(emp_id) AS employee_count FROM hr_emp_base WHERE emp_type_cd = 'FULL_TIME' LIMIT 100",
+      "review_notes": ""
+    },
+    {
+      "case_id": "case_005_drop_import_table",
+      "title": "统计在职员工人数（忽略临时导入表）",
+      "risk_focus": "drop staging table",
+      "raw_question": "统计临时导入表里在职员工人数",
+      "processed_question": {"raw": "统计临时导入表里在职员工人数", "text": "统计临时导入表里在职员工人数", "keywords": ["临时导入", "在职", "员工", "人数"], "business_terms": ["在职员工"], "metric_hints": ["employee_count"], "dimension_hints": [], "filter_hints": ["active_employee"], "time_hints": [], "assumptions": ["临时导入表未通过验证，使用正式员工表"]},
+      "expected_schema_linking": {"selected_tables": ["hr_emp_base"], "relevant_columns": ["hr_emp_base.emp_id"], "relationships": [], "value_bindings": ["hr_emp_base.emp_stat_cd=ACTIVE"], "dropped_tables": ["tmp_import_record"]},
+      "expected_prompt_contains": ["Table: hr_emp_base"],
+      "expected_prompt_excludes": ["Table: tmp_import_record"],
+      "expected_sql_shape": ["hr_emp_base", "ACTIVE", "COUNT"],
+      "reference_sql": "SELECT COUNT(emp_id) AS employee_count FROM hr_emp_base WHERE emp_stat_cd = 'ACTIVE' LIMIT 100",
+      "review_notes": ""
+    },
+    {
+      "case_id": "case_006_ambiguous_employee_count",
+      "title": "统计员工人数（未限定状态）",
+      "risk_focus": "ambiguous condition",
+      "raw_question": "统计员工人数",
+      "processed_question": {"raw": "统计员工人数", "text": "统计员工人数", "keywords": ["人数"], "business_terms": [], "metric_hints": ["employee_count"], "dimension_hints": [], "filter_hints": [], "time_hints": [], "assumptions": ["未限定员工状态，默认统计全部员工"]},
+      "expected_schema_linking": {"selected_tables": ["hr_emp_base"], "relevant_columns": ["hr_emp_base.emp_id"], "relationships": [], "value_bindings": [], "dropped_tables": []},
+      "expected_prompt_contains": ["Table: hr_emp_base", "未限定员工状态，默认统计全部员工"],
+      "expected_prompt_excludes": ["在职员工 -> hr_emp_base.emp_stat_cd = ACTIVE", "离职员工 -> hr_emp_base.emp_stat_cd = INACTIVE"],
+      "expected_sql_shape": ["COUNT", "hr_emp_base"],
+      "reference_sql": "SELECT COUNT(emp_id) AS employee_count FROM hr_emp_base LIMIT 100",
+      "review_notes": ""
+    }
+  ]
+}

@@ -29,9 +29,12 @@ class Nl2SqlWorkflow:
             "request_id": input.request_id,
             "user_id": input.user_id,
             "database_key": input.database_key,
+            "case_id": input.case_id,
             "raw_question": input.question,
             "options": dict(input.options),
             "runtime_options": normalize_runtime_options(input.options),
+            "processed_question": input.processed_question,
+            "processed_database_knowledge": input.processed_database_knowledge,
             "status": "running",
         }
 

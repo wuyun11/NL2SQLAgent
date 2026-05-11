@@ -10,6 +10,9 @@ from nl2sqlagent.workflows.nl2sql.nodes import (
     normalize_question_node,
     success_response_node,
 )
+from nl2sqlagent.workflows.nl2sql.knowledge_pipeline import (
+    build_sample_processed_database_knowledge,
+)
 from nl2sqlagent.workflows.nl2sql.sql_generator import FakeSqlGenerator
 
 
@@ -59,6 +62,33 @@ def test_build_prompt_node_creates_structured_payload_and_final_prompt() -> None
     assert "Output Contract:" in result["final_prompt"]
     assert "dropped_candidates" not in result["final_prompt"]
     assert "retrieval_method" not in result["final_prompt"]
+
+
+def test_build_prompt_node_uses_manual_processed_question_and_knowledge() -> None:
+    manual_question = {
+        "raw": "统计员工人数",
+        "text": "统计员工人数",
+        "keywords": ["员工", "人数"],
+        "business_terms": [],
+        "metric_hints": ["employee_count"],
+        "dimension_hints": [],
+        "filter_hints": [],
+        "time_hints": [],
+        "assumptions": ["未限定员工状态，默认统计全部员工"],
+    }
+    manual_knowledge = build_sample_processed_database_knowledge()
+    result = build_prompt_node(
+        {
+            "raw_question": "统计员工人数",
+            "normalized_question": "统计员工人数",
+            "processed_question": manual_question,
+            "processed_database_knowledge": manual_knowledge,
+        }
+    )
+    assert result["processed_question"] == manual_question
+    assert result["processed_database_knowledge"] == manual_knowledge
+    assert "在职员工 -> hr_emp_base.emp_stat_cd = ACTIVE" not in result["final_prompt"]
+    assert "未限定员工状态，默认统计全部员工" in result["final_prompt"]
 
 
 def test_generate_sql_node_returns_sql_from_generator() -> None:

@@ -32,8 +32,12 @@ def normalize_question_node(state: Nl2SqlGraphState) -> dict:
 def build_prompt_node(state: Nl2SqlGraphState) -> dict:
     raw_question = state.get("raw_question") or state.get("normalized_question") or ""
     normalized_question = state.get("normalized_question") or raw_question.strip()
-    processed_question = build_initial_processed_question(normalized_question)
-    processed_database_knowledge = build_sample_processed_database_knowledge()
+    processed_question = state.get("processed_question") or build_initial_processed_question(
+        normalized_question
+    )
+    processed_database_knowledge = state.get(
+        "processed_database_knowledge"
+    ) or build_sample_processed_database_knowledge()
     knowledge_retrieval_result = build_knowledge_retrieval_result(
         processed_question, processed_database_knowledge
     )

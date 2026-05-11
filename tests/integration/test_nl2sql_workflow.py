@@ -399,6 +399,41 @@ def test_nl2sql_workflow_runtime_options_still_support_mock_check_failure(
     assert output.metadata["prompt_payload"]["question"]["normalized"] == "按部门统计在职员工人数"
 
 
+def test_nl2sql_workflow_accepts_manual_middle_layer_inputs(tmp_path) -> None:
+    workflow = _workflow_with_log_dir(tmp_path)
+    output = workflow.run(
+        Nl2SqlInput(
+            question="统计在职员工人数",
+            case_id="case_001_active_employee_count",
+            processed_question={
+                "raw": "统计在职员工人数",
+                "text": "统计在职员工人数",
+                "keywords": ["在职", "员工", "人数"],
+                "business_terms": ["在职员工"],
+                "metric_hints": ["employee_count"],
+                "dimension_hints": [],
+                "filter_hints": ["active_employee"],
+                "time_hints": [],
+                "assumptions": [],
+            },
+            processed_database_knowledge={
+                "dialect": "sqlite",
+                "tables": [],
+                "columns": [],
+                "relationships": [],
+                "value_bindings": [],
+                "business_terms": [],
+            },
+        ),
+        thread_id="thread-manual-inputs",
+    )
+    assert output.metadata["processed_question"]["text"] == "统计在职员工人数"
+    assert output.metadata["processed_database_knowledge"]["dialect"] == "sqlite"
+    assert output.metadata["input_path"]
+    input_json = json.loads(Path(output.metadata["input_path"]).read_text(encoding="utf-8"))
+    assert input_json["case_id"] == "case_001_active_employee_count"
+
+
 def test_build_app_exposes_nl2sql_workflow(tmp_path, monkeypatch) -> None:
     secret = "sk-test-secret-should-not-leak"
     monkeypatch.setenv("DASHSCOPE_API_KEY", secret)
@@ -455,3 +490,38 @@ def test_build_app_exposes_nl2sql_workflow(tmp_path, monkeypatch) -> None:
     app_log = app.logging.log_dir / "app.log"
     assert app_log.exists()
     assert secret not in app_log.read_text(encoding="utf-8")
+
+
+def test_build_app_allows_sql_generator_override(tmp_path) -> None:
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    (config_dir / "app.yml").write_text(
+        "app:\n  name: TestAgent\n  environment: test\n",
+        encoding="utf-8",
+    )
+    (config_dir / "env.yml").write_text(
+        "paths:\n  workspace_dir: workspace\n  run_dir: workspace/runs\n  log_dir: workspace/logs\n\nlogging:\n  level: INFO\n  file_enabled: true\n  console_enabled: false\n",
+        encoding="utf-8",
+    )
+    (config_dir / "workflow.yml").write_text(
+        "workflow:\n  checkpointer:\n    provider: memory\n",
+        encoding="utf-8",
+    )
+    (config_dir / "model.yml").write_text(
+        "model:\n  sql_generator:\n    provider: openai_compatible\n    chat_model_name: qwen-max\n    base_url: https://example.invalid/v1\n    api_key_env: DASHSCOPE_API_KEY\n    temperature: 0\n    timeout_seconds: 30\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "pyproject.toml").write_text(
+        "[project]\nname='test-agent'\n",
+        encoding="utf-8",
+    )
+    app = build_app(
+        project_root=tmp_path,
+        run_id="run-with-override",
+        sql_generator_override=FakeSqlGenerator(sql="SELECT 42 AS value"),
+    )
+    output = app.nl2sql_workflow.run(
+        Nl2SqlInput(question="统计员工数量"),
+        thread_id="thread-override",
+    )
+    assert output.sql == "SELECT 42 AS value"

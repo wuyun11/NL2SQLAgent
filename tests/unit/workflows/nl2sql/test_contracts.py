@@ -18,6 +18,9 @@ def test_nl2sql_input_defaults_to_empty_options() -> None:
     assert request.user_id is None
     assert request.database_key is None
     assert request.options == {}
+    assert request.case_id is None
+    assert request.processed_question is None
+    assert request.processed_database_knowledge is None
 
 
 def test_nl2sql_input_options_default_dicts_are_not_shared() -> None:
@@ -203,6 +206,19 @@ def test_phase7_forbidden_heavy_paths_stay_absent() -> None:
     assert not Path("src/nl2sqlagent/application/stages").exists()
 
 
+def test_phase8_does_not_add_stage_chain_or_use_llm_generate() -> None:
+    forbidden = [
+        "use_llm_generate",
+        "GenerateStage",
+        "Nl2SqlChain",
+        "MainOrchestration",
+    ]
+    root = Path("src")
+    for path in root.rglob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        assert all(token not in source for token in forbidden)
+
+
 def test_phase7_nodes_do_not_embed_llm_client_or_provider_secrets() -> None:
     source = Path("src/nl2sqlagent/workflows/nl2sql/nodes.py").read_text(encoding="utf-8")
     for token in (
@@ -214,6 +230,15 @@ def test_phase7_nodes_do_not_embed_llm_client_or_provider_secrets() -> None:
         "os.environ",
     ):
         assert token not in source
+
+
+def test_sample_cases_do_not_import_llm_provider() -> None:
+    source = Path(
+        "src/nl2sqlagent/workflows/nl2sql/sample_cases.py"
+    ).read_text(encoding="utf-8")
+    assert "ChatOpenAI" not in source
+    assert "DASHSCOPE_API_KEY" not in source
+    assert "langchain_openai" not in source
 
 
 def test_phase7_sql_generator_provider_imports_are_lazy() -> None:

@@ -17,6 +17,7 @@ class Nl2SqlGraphState(TypedDict, total=False):
     request_id: str | None
     user_id: str | None
     database_key: str | None
+    case_id: str | None
 
     raw_question: str
     normalized_question: str
