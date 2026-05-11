@@ -1,353 +1,381 @@
-可以执行。
-这份 `2026-05-09-nl2sql-knowledge-layer-consumption.md` 已经是**可执行 implementation plan**，不是单纯设计稿了。它的目标、边界、文件结构、任务顺序、测试先行、验收标准都比较完整，适合交给 AI/开发者按 Task 逐步实现。
-
-## 结论
+我看完这份 `Phase7_NL2SQL_LLM接入设计.md`，结论是：
 
 ```text
-可以执行。
-但建议执行前修 4 个小问题。
+没有明显绕过 LangGraph 框架的嫌疑。
+相反，这份设计是在有意识地防止“第二套流程控制”重新出现。
 ```
 
-整体方向是对的：先跑通这条链路：
-
-```text
-ProcessedQuestion
-  + ProcessedDatabaseKnowledge
-  -> KnowledgeRetrievalResult
-  -> SchemaLinkingResult
-  -> SqlGenerationContext
-  -> PromptPayload
-  -> FinalPrompt
-```
-
-并且明确不接真实 LLM、真实 DB、真实向量库、retry、QueryPlan、domain/services/stages 等重型结构。这个边界非常适合你当前阶段。
-
-LangGraph 的 StateGraph 本身就是节点读取共享 state、返回 partial state update 的模型；官方 reference 也说明节点签名是 `State -> Partial<State>`。所以计划里让 `build_prompt_node` 返回 `processed_question / retrieval / linking / sql_generation_context / prompt_payload / final_prompt`，是符合 LangGraph 使用方式的。([LangChain 参考文档][1])
+它的核心思路是：**LangGraph 继续负责流程，`generate_sql` 节点继续代表“生成 SQL”这个业务步骤，`SqlGenerator` 只是这个节点内部注入的模型调用适配器。** 这和 LangGraph 的设计方式是吻合的：StateGraph 的节点通过读取/写入共享 state 通信，节点返回 partial state update；条件边用于根据 state 决定下一步去哪里。([reference.langchain.com][1])
 
 ---
 
-## 做得好的地方
+## 1. 这份设计没有绕过框架，原因很明确
 
-### 1. 范围控制很好
-
-计划明确禁止：
+文档里最关键的一句是：
 
 ```text
-RawUserQuestion -> ProcessedQuestion
-RawDatabaseSchema -> ProcessedDatabaseKnowledge
-真实 LLM
-真实数据库
-真实向量库
-retry
-QueryPlan
-domain/services/integrations/stages/models
+本阶段只替换 final_prompt -> generated_sql。
 ```
 
-这非常重要。
-
-你这次不是在做完整 NL2SQL，而是在做**知识层消费链路**。这个切分很合理。
-
----
-
-### 2. 增加 `KnowledgeRetrievalResult` 是正确的
-
-计划明确区分：
-
-```text
-KnowledgeRetrievalResult:
-  候选召回，可以有噪声。
-
-SchemaLinkingResult:
-  最终选择，需要证据、丢弃项、warning。
-
-SqlGenerationContext:
-  给 SQL LLM 的干净输入。
-```
-
-这个分层是整个方案最核心的地方。
-
-这也符合 Text-to-SQL 里常见的拆分思路。DIN-SQL 就是把 Text-to-SQL 分解为 schema linking、query classification/decomposition、SQL generation、self-correction 等子任务，而不是让一个 LLM 直接承担所有判断。([arXiv][2])
-
----
-
-### 3. 文件结构克制
-
-计划只新增：
-
-```text
-knowledge_contracts.py
-knowledge_pipeline.py
-test_knowledge_pipeline.py
-```
-
-这很好。
-
-你没有一上来创建：
-
-```text
-domain/
-services/
-stages/
-models/
-protocols/
-```
-
-这是正确的。当前阶段先把数据契约和纯函数 pipeline 跑通，比搭抽象层更重要。
-
----
-
-### 4. 测试设计很扎实
-
-计划覆盖了：
-
-```text
-contracts import
-sample processed question
-sample knowledge layer
-structured retrieval
-schema linking
-SQL generation context
-prompt payload
-prompt renderer
-node integration
-artifact metadata
-dropped candidates
-pseudo vector candidate
-final verification
-```
-
-尤其是这个测试非常有价值：
-
-```text
-伪 vector candidate 不能绕过 SchemaLinkingResult 直接进入 SqlGenerationContext / FinalPrompt。
-```
-
-它可以提前锁住架构边界，避免以后接向量时把 top-k chunk 直接塞进 prompt。
-
----
-
-## 执行前建议修 4 个小问题
-
-### 问题 1：`test_schema_linking_keeps_unselected_candidates_out_of_selected_context` 里 `finance_salary_month` 可能会污染 `str(context)` 测试
-
-后面 Task 8 计划里有：
+也就是只把当前 mock：
 
 ```python
-assert "finance_salary_month" not in str(context)
-assert "finance_salary_month" not in str(payload)
-assert "finance_salary_month" not in final_prompt
+return {"generated_sql": "SELECT 1 AS value"}
 ```
 
-这个方向是对的。
+替换成：
 
-但要注意：如果 `SchemaLinkingResult.dropped_candidates` 被错误带入 context，就会失败；这是你想测的。但如果实现里 `semantic_context` 或 debug 字段不小心保留了 dropped 信息，也会失败。
+```text
+final_prompt -> SqlGenerator -> generated_sql
+```
 
-所以这条测试很好，执行时要坚持：**`SqlGenerationContext` 不能包含 dropped_candidates，也不能包含 dropped table name。**
+而不是重新引入一套：
+
+```text
+Chain
+Stage
+Orchestration
+MainOrchestration
+```
+
+文档也明确写了不做 `engine/chains`、`GenerateStage`、`MainOrchestration`，并且强调流程分支必须继续体现在 `graph.py`，不能藏进 `options.use_llm_generate` 或新的 Stage/Chain 里。
+
+这点非常重要。因为你之前重构的根本风险就是“两套流程控制”：
+
+```text
+LangGraph 一套流程
+Stage/Orchestration 又一套流程
+```
+
+而这份文档现在明确拒绝这个方向。
 
 ---
 
-### 问题 2：`build_initial_processed_question(...)` 现在只适配“员工部门统计”
+## 2. `SqlGenerator` 这个抽象是合适的，不是乱加层
 
-计划里：
+这份设计新增：
 
 ```python
-def build_initial_processed_question(raw_question: str) -> ProcessedQuestion:
-    text = raw_question.strip()
-    return {
-        ...
-        "keywords": ["部门", "在职", "员工", "人数"],
-        ...
-    }
+@dataclass(frozen=True)
+class SqlGenerationResult:
+    generated_sql: str
+    model_name: str
+    raw_text: str
+
+class SqlGenerator(Protocol):
+    def generate(self, final_prompt: str) -> SqlGenerationResult: ...
 ```
 
-这可以接受，因为计划明确说这是**手写中间层对象，不是问题理解**。
+这个抽象我认为是合理的。它不是新的 workflow，也不是新的业务阶段；它只是 `generate_sql_node` 的依赖。
 
-但建议在函数注释里写清楚：
+它解决的是：
 
 ```text
-This is a temporary fixture-like processed question builder for the first knowledge-layer consumption path. It is not a real question understanding implementation.
+单元测试 / 集成测试用 FakeSqlGenerator。
+cloud / 本地人工验证用 OpenAICompatibleSqlGenerator。
+generate_sql_node 不直接关心具体 provider。
 ```
 
-否则后续别人可能误以为这是正式的 question understanding。
+这符合依赖注入的方向。LangChain/LangGraph 的 runtime context 文档也把数据库连接、API client、配置等依赖作为运行时上下文/依赖注入对象，而不是硬编码在节点里。([LangChain 文档][2])
+
+所以这个抽象不是“绕开框架”，而是为了让节点保持薄。
 
 ---
 
-### 问题 3：`build_sample_processed_database_knowledge()` 放在 production module 里，要明确是 sample
+## 3. `generate_sql_node` 的职责边界是对的
 
-这次计划把 sample knowledge 放到：
+文档规定 `generate_sql_node` 只做：
 
 ```text
-knowledge_pipeline.py
+1. 从 state 读取 final_prompt。
+2. 调用注入的 SqlGenerator。
+3. 把 generated_sql / llm_result 写回 state。
+4. 捕获异常，写 generate_error。
 ```
 
-这可以接受，因为当前阶段就是为了跑通本地链路。
+并明确不做：
 
-但它毕竟是样例数据，不是真正业务数据。建议函数名继续保留 `sample`，并避免让其他模块把它误用成正式知识来源。
-
-也就是说，当前可以：
-
-```python
-build_sample_processed_database_knowledge()
+```text
+读取 API key
+初始化 ChatOpenAI
+判断 provider
+写 artifact
+记录 token usage
+retry / repair
 ```
 
-但不要命名成：
+这个边界非常干净。
 
-```python
-load_processed_database_knowledge()
-get_processed_database_knowledge()
-```
+它也符合 LangGraph 节点的基本模式：节点函数接收 state，返回需要更新的 state 片段。([reference.langchain.com][1])
 
-你计划里的命名是好的。
+如果后续实现真的按这个写，`nodes.py` 不会变成大泥球。
 
 ---
 
-### 问题 4：Task 7 artifact 可选独立文件要克制
+## 4. `route_after_generate` 放进 graph 是正确的
 
-计划里说可选新增：
-
-```text
-knowledge_retrieval_result.json
-schema_linking_result.json
-sql_generation_context.json
-```
-
-但也说如果会让 `artifacts.py` 变大，就先依赖 `output.json` 和 `graph_updates.jsonl`。
-
-我建议初版**不要新增独立 artifact 文件**，除非实现非常简单。
-
-当前最小目标应该是：
+文档里把：
 
 ```text
-output.json metadata 能看到
-graph_updates.jsonl 能看到 build_prompt update
-final_prompt.txt 干净
-prompt_payload.json 有 value_bindings
+generate_sql -> check_sql
 ```
 
-等这条链路稳定后，再拆独立 artifact 文件。
+改成：
+
+```text
+generate_sql -> route_after_generate -> check_sql / failed_response
+```
+
+这是正确的。
+
+因为：
+
+```text
+生成失败后是否继续 check_sql
+```
+
+这是 workflow 分支，不应该藏在 `generate_sql_node` 内部的 if 里，也不应该由外部 orchestration 决定。
+
+这和 LangGraph 条件边的用途一致：通过 `add_conditional_edges` 让路由函数根据 state 决定下一节点。([LangChain 文档][3])
+
+所以这不是绕过框架，而是在更充分地使用 LangGraph。
 
 ---
 
-## 我认为可以直接按 Task 执行的原因
+## 5. 我最认可的点：不用 `use_llm_generate`
 
-这份计划符合几个关键原则：
+文档明确不设计：
 
 ```text
-1. 测试先行。
-2. 每个 Task 有明确文件范围。
-3. 每个 Task 有预期失败和预期通过。
-4. 不扩展架构层。
-5. 不接真实外部依赖。
-6. 不让 retrieval internals 进入 final_prompt。
-7. 不让 nodes.py 写文件。
-8. 不让 response_builder.py 构造 artifact path metadata。
+options.use_llm_generate
 ```
 
-这正好符合你前面一直在收敛的方向。
+而是通过装配区分：
+
+```text
+单元测试 / 普通集成测试:
+  FakeSqlGenerator
+
+本地人工 LLM 验证 / cloud 测试:
+  OpenAICompatibleSqlGenerator
+```
+
+这个判断非常关键。
+
+如果你用 `options.use_llm_generate`，后面很容易继续出现：
+
+```text
+use_vector
+use_history_sql
+use_template
+use_retry
+```
+
+最后就变成：
+
+```text
+graph.py 看起来是一条流程，
+但真实行为都藏在 options 里。
+```
+
+而现在的设计是：
+
+```text
+环境差异靠装配。
+业务流程靠 LangGraph。
+```
+
+这条线非常对。
 
 ---
 
-## 执行时最需要守住的边界
+## 6. 当前设计有一个小风险：`sql_generator.py` 放在 workflow 包里
 
-### 1. `knowledge_pipeline.py` 必须是纯函数
-
-它只能做：
+文档建议新增：
 
 ```text
-ProcessedQuestion
-ProcessedDatabaseKnowledge
-KnowledgeRetrievalResult
-SchemaLinkingResult
-SqlGenerationContext
+src/nl2sqlagent/workflows/nl2sql/sql_generator.py
 ```
 
-不能做：
+并说明暂时不新增：
 
 ```text
-文件 I/O
-日志
-LangGraph
-artifact 写入
-真实 LLM
-真实 DB
-向量库
+src/nl2sqlagent/infrastructure/llm/
 ```
 
-计划已经写了这一点，执行时不要放松。
+理由是：
+
+```text
+当前 LLM 调用只服务 NL2SQL workflow 的 generate_sql 节点。
+等多个 workflow 复用 LLM provider 后，再考虑迁移公共基础设施。
+```
+
+这个取舍我可以接受。
+
+但要注意一个边界：
+
+```text
+sql_generator.py 可以是当前 workflow 的薄 adapter。
+不要在里面发展出一整套 chain / prompt / retry / logging 框架。
+```
+
+如果以后出现第二个 workflow 也需要 chat model，再迁移到 `platform/llm` 或 `infrastructure/llm`。当前不要提前抽公共层，这个判断是克制的。
 
 ---
 
-### 2. `build_prompt_node` 只编排，不做业务细节
+## 7. 配置设计基本合理，但有一个实现细节要小心
 
-`nodes.py` 里可以顺序调用：
+新增：
 
-```python
-build_initial_processed_question
-build_sample_processed_database_knowledge
-build_knowledge_retrieval_result
-build_schema_linking_result
-build_sql_generation_context
-build_prompt_payload_from_sql_generation_context
+```yaml
+model:
+  sql_generator:
+    provider: openai_compatible
+    chat_model_name: glm-5
+    base_url: ...
+    api_key_env: DASHSCOPE_API_KEY
+    temperature: 0
+    timeout_seconds: 60
 ```
 
-但不要在 `nodes.py` 里写匹配规则、过滤规则、artifact 逻辑。
+这没问题。文档也强调 `provider` 是部署/装配配置，不是业务输入开关，不进入 `Nl2SqlInput.options` 或 `runtime_options`。
+
+我建议执行时守住一点：
+
+```text
+API key 缺失不要写进 artifact / app.log。
+generate_error 可以写 “missing API key env: DASHSCOPE_API_KEY”，但不要写真实值。
+```
+
+这份文档已经提到真实 key 不进入 graph state、artifact、app.log。这个边界要在测试里保护。
 
 ---
 
-### 3. `PromptPayload / FinalPrompt` 只能来自 `SqlGenerationContext`
+## 8. 不做 token usage / LangSmith / retry 是正确的
 
-这是最重要的验收标准。
-
-不能这样：
+这份设计明确不做：
 
 ```text
-KnowledgeRetrievalResult -> PromptPayload
-SchemaLinkingResult.dropped_candidates -> PromptPayload
-vector raw_ref -> PromptPayload
+token usage
+LangSmith
+retry / repair
+真实数据库执行
+向量召回
+历史 SQL 模板
 ```
 
-必须是：
+我认为这非常正确。
+
+尤其是 retry / repair，它不是“加个字段”这么简单，而是 workflow 结构变化：
 
 ```text
-SqlGenerationContext -> PromptPayload -> FinalPrompt
+check_sql failed
+  -> repair prompt
+  -> generate_sql
+  -> check_sql
 ```
 
-计划已经把这个作为边界写清楚了。
+这个应该以后用 LangGraph 分支/循环单独设计，现在混进去会干扰本阶段目标。
+
+当前目标只是验证：
+
+```text
+final_prompt -> LLM -> generated_sql
+```
+
+所以本阶段保持薄是对的。
 
 ---
 
-## 最终执行口径
+## 9. 这份文档仍需要补一个执行层面的保护
 
-可以这样交给执行者：
+文档第 12.4 已经建议架构保护测试：
 
 ```text
-可以开始执行 2026-05-09-nl2sql-knowledge-layer-consumption.md。
-
-严格按 Task 1-9 顺序执行。
-
-当前只实现：
-- 手写 ProcessedQuestion
-- 手写 ProcessedDatabaseKnowledge
-- structured matcher
-- Candidate -> SchemaLinkingResult
-- SchemaLinkingResult -> SqlGenerationContext
-- PromptPayload / FinalPrompt 升级
-- artifact / metadata 可观察
-
-禁止扩范围：
-- 不接真实 LLM / DB / VectorStore
-- 不实现 RawUserQuestion -> ProcessedQuestion
-- 不实现 RawDatabaseSchema -> ProcessedDatabaseKnowledge
-- 不做 retry / QueryPlan
-- 不新增 domain/services/integrations/stages/models/protocols
-- 不让 dropped_candidates / retrieval_method / vector_score / chunk_id / raw_ref 进入 final_prompt
+1. src/ 中不出现 use_llm_generate。
+2. src/ 中不新增 engine/chains。
+3. src/ 中不新增 application/stages。
+4. nodes.py 中不出现 ChatOpenAI / DASHSCOPE_API_KEY / base_url / api_key。
 ```
 
-## 最终判断
+这个必须保留。
 
-**可以执行。**
+我还建议加一个：
 
-这份计划已经具备实施条件。它不是“继续讨论设计”，而是把设计压成了一个可测试、可分步提交的最小实现路径。唯一要注意的是：执行过程中必须克制，不要顺手把 sample builder 做成正式问题理解，不要顺手加真实向量或 LLM，也不要为了 artifact 一次性新增太多文件。
+```text
+5. artifacts.py / response_builder.py 中不出现 api_key / DASHSCOPE_API_KEY 的真实值。
+```
+
+也就是测试 secret 不进入输出。
+
+---
+
+## 10. 是否有“绕过框架”的嫌疑？
+
+我会分成三个判断。
+
+### 没有绕过的部分
+
+```text
+1. 继续使用 graph.py 表达流程。
+2. 失败分支用 route_after_generate 条件边。
+3. generate_sql_node 返回 partial state update。
+4. LLM 调用结果进入 state / artifact。
+5. 不引入 Stage / Chain / Orchestration。
+6. 不用 options 隐藏切换真实 LLM。
+```
+
+这些都说明没有绕过 LangGraph。
+
+### 需要小心的部分
+
+```text
+1. sql_generator.py 不要演化成 NL2SQLChain。
+2. OpenAICompatibleSqlGenerator 不要负责 prompt、artifact、retry、token usage。
+3. container 装配不要变成第二套 orchestration。
+4. cloud test 不要进入默认 pytest。
+```
+
+这些是实现时的风险，不是设计本身的问题。
+
+### 我会要求执行计划中明确的边界
+
+```text
+generate_sql_node:
+  只能 import SqlGenerator / SqlGenerationError / SqlGenerationResult。
+  不能 import ChatOpenAI。
+  不能 import os.environ。
+  不能读取 model.yml。
+  不能写 artifact。
+```
+
+这个边界一旦守住，项目就不会乱。
+
+---
+
+## 最终评价
+
+这份 `Phase7_NL2SQL_LLM接入设计.md` **没有明显绕过框架的嫌疑**，而且比“参考旧项目直接搬 Chain/Stage”要稳很多。
+
+它的正确形状是：
+
+```text
+LangGraph 继续管流程；
+generate_sql 节点继续表示“生成 SQL”；
+SqlGenerator 只是节点依赖；
+Fake / Real generator 通过装配切换；
+生成失败通过 LangGraph 条件边进入 failed_response；
+结果继续进入 graph state 和 artifact；
+不新建第二套 Chain / Stage / Orchestration。
+```
+
+一句话结论：
+
+```text
+可以作为 Phase7 LLM 接入的设计稿通过。
+下一步应该写 implementation plan，但必须保留架构保护测试，防止实现时把 ChatOpenAI、API key、Stage/Chain 偷偷塞回 nodes.py 或新流程里。
+```
 
 [1]: https://reference.langchain.com/python/langgraph/graph/state/StateGraph?utm_source=chatgpt.com "StateGraph | langgraph"
-[2]: https://arxiv.org/abs/2304.11015?utm_source=chatgpt.com "DIN-SQL: Decomposed In-Context Learning of Text-to- ..."
+[2]: https://docs.langchain.com/oss/python/langchain/runtime?utm_source=chatgpt.com "Runtime - Docs by LangChain"
+[3]: https://docs.langchain.com/oss/python/langgraph/graph-api?utm_source=chatgpt.com "Graph API overview - Docs by LangChain"
