@@ -4,7 +4,9 @@ from nl2sqlagent.platform.config.models import (
     AppSection,
     CheckpointerSection,
     LoggingSection,
+    ModelSection,
     PathsSection,
+    SqlGeneratorSection,
     WorkflowSection,
 )
 
@@ -13,7 +15,9 @@ __all__ = [
     "AppSection",
     "CheckpointerSection",
     "LoggingSection",
+    "ModelSection",
     "PathsSection",
+    "SqlGeneratorSection",
     "WorkflowSection",
     "load_app_config",
 ]

@@ -34,11 +34,28 @@ class WorkflowSection:
 
 
 @dataclass(frozen=True)
+class SqlGeneratorSection:
+    provider: str
+    fixed_sql: str | None = None
+    chat_model_name: str | None = None
+    base_url: str | None = None
+    api_key_env: str | None = None
+    temperature: float | None = None
+    timeout_seconds: int | None = None
+
+
+@dataclass(frozen=True)
+class ModelSection:
+    sql_generator: SqlGeneratorSection
+
+
+@dataclass(frozen=True)
 class AppConfig:
     app: AppSection
     paths: PathsSection
     logging: LoggingSection
     workflow: WorkflowSection
+    model: ModelSection
 
 
 __all__ = [
@@ -46,6 +63,8 @@ __all__ = [
     "AppSection",
     "CheckpointerSection",
     "LoggingSection",
+    "ModelSection",
     "PathsSection",
+    "SqlGeneratorSection",
     "WorkflowSection",
 ]

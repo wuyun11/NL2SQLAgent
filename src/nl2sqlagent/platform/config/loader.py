@@ -10,7 +10,9 @@ from nl2sqlagent.platform.config.models import (
     AppSection,
     CheckpointerSection,
     LoggingSection,
+    ModelSection,
     PathsSection,
+    SqlGeneratorSection,
     WorkflowSection,
 )
 from nl2sqlagent.platform.errors import ConfigurationError
@@ -51,11 +53,56 @@ def _boolean(data: dict[str, Any], key: str, *, section: str) -> bool:
     return value
 
 
+def _positive_int(data: dict[str, Any], key: str, *, section: str) -> int:
+    value = data.get(key)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ConfigurationError(f"config field '{section}.{key}' must be an integer")
+    if value <= 0:
+        raise ConfigurationError(f"config field '{section}.{key}' must be positive")
+    return value
+
+
+def _finite_float(data: dict[str, Any], key: str, *, section: str) -> float:
+    value = data.get(key)
+    if isinstance(value, bool):
+        raise ConfigurationError(f"config field '{section}.{key}' must be a number")
+    if isinstance(value, int | float):
+        return float(value)
+    raise ConfigurationError(f"config field '{section}.{key}' must be a number")
+
+
+def _load_sql_generator_section(data: dict[str, Any]) -> SqlGeneratorSection:
+    section = "model.sql_generator"
+    provider = _string(data, "provider", section=section)
+    if provider == "fake":
+        fixed = data.get("fixed_sql")
+        if fixed is None:
+            fixed_sql = "SELECT 1 AS value"
+        elif isinstance(fixed, str) and fixed.strip():
+            fixed_sql = fixed.strip()
+        else:
+            raise ConfigurationError(
+                f"config field '{section}.fixed_sql' must be a non-empty string when set"
+            )
+        return SqlGeneratorSection(provider=provider, fixed_sql=fixed_sql)
+    if provider == "openai_compatible":
+        return SqlGeneratorSection(
+            provider=provider,
+            chat_model_name=_string(data, "chat_model_name", section=section),
+            base_url=_string(data, "base_url", section=section),
+            api_key_env=_string(data, "api_key_env", section=section),
+            temperature=_finite_float(data, "temperature", section=section),
+            timeout_seconds=_positive_int(data, "timeout_seconds", section=section),
+        )
+    raise ConfigurationError(f"unsupported {section}.provider: {provider!r}")
+
+
 def load_app_config(config_dir: Path | None = None) -> AppConfig:
     resolved_config_dir = Path("config") if config_dir is None else config_dir
     app_data = _load_yaml_file(resolved_config_dir / "app.yml")
     env_data = _load_yaml_file(resolved_config_dir / "env.yml")
     workflow_data = _load_yaml_file(resolved_config_dir / "workflow.yml")
+    model_data = _load_yaml_file(resolved_config_dir / "model.yml")
 
     app_section = _mapping(app_data, "app", file_name="app.yml")
     paths_section = _mapping(env_data, "paths", file_name="env.yml")
@@ -65,6 +112,12 @@ def load_app_config(config_dir: Path | None = None) -> AppConfig:
         workflow_section,
         "checkpointer",
         file_name="workflow.yml",
+    )
+    model_section = _mapping(model_data, "model", file_name="model.yml")
+    sql_generator_section = _mapping(
+        model_section,
+        "sql_generator",
+        file_name="model.yml",
     )
 
     return AppConfig(
@@ -94,6 +147,9 @@ def load_app_config(config_dir: Path | None = None) -> AppConfig:
                     section="workflow.checkpointer",
                 ),
             ),
+        ),
+        model=ModelSection(
+            sql_generator=_load_sql_generator_section(sql_generator_section),
         ),
     )
 

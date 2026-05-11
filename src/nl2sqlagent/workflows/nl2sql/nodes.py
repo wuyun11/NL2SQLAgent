@@ -11,6 +11,7 @@ from nl2sqlagent.workflows.nl2sql.prompt_builder import render_final_prompt
 from nl2sqlagent.workflows.nl2sql.prompt_payload import (
     build_prompt_payload_from_sql_generation_context,
 )
+from nl2sqlagent.workflows.nl2sql.sql_generator import SqlGenerator
 from nl2sqlagent.workflows.nl2sql.state import Nl2SqlGraphState
 
 
@@ -60,8 +61,32 @@ def build_prompt_node(state: Nl2SqlGraphState) -> dict:
     }
 
 
-def generate_sql_node(state: Nl2SqlGraphState) -> dict:
-    return {"generated_sql": "SELECT 1 AS value"}
+def generate_sql_node(
+    state: Nl2SqlGraphState,
+    *,
+    sql_generator: SqlGenerator,
+) -> dict:
+    final_prompt = state.get("final_prompt") or ""
+    if not final_prompt.strip():
+        return {
+            "generate_error": "final_prompt is required before SQL generation",
+            "status": "failed",
+        }
+    try:
+        result = sql_generator.generate(final_prompt)
+    except Exception as exc:
+        return {
+            "generate_error": str(exc),
+            "status": "failed",
+        }
+    return {
+        "generated_sql": result.generated_sql,
+        "llm_result": {
+            "model_name": result.model_name,
+            "raw_text": result.raw_text,
+        },
+        "generate_error": None,
+    }
 
 
 def check_sql_node(state: Nl2SqlGraphState) -> dict:
@@ -101,7 +126,8 @@ def clarification_response_node(state: Nl2SqlGraphState) -> dict:
 
 def failed_response_node(state: Nl2SqlGraphState) -> dict:
     message = (
-        state.get("check_error")
+        state.get("generate_error")
+        or state.get("check_error")
         or state.get("execute_error")
         or state.get("message")
         or "NL2SQL workflow failed."

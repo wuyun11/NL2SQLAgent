@@ -18,7 +18,8 @@ def _message(state: Nl2SqlGraphState, status: Nl2SqlStatus) -> str | None:
         return state.get("clarification_message") or state.get("message")
     if status == "failed":
         return (
-            state.get("check_error")
+            state.get("generate_error")
+            or state.get("check_error")
             or state.get("execute_error")
             or state.get("message")
             or "NL2SQL workflow failed."
@@ -36,6 +37,8 @@ def build_prompt_debug_metadata(state: Nl2SqlGraphState) -> dict[str, Any]:
         "knowledge_retrieval_result",
         "schema_linking_result",
         "sql_generation_context",
+        "llm_result",
+        "generate_error",
     ):
         if key in state:
             metadata[key] = state.get(key)

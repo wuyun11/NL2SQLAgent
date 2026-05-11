@@ -14,6 +14,7 @@ from nl2sqlagent.workflows.nl2sql import (
     Nl2SqlWorkflow,
     build_nl2sql_graph,
 )
+from nl2sqlagent.workflows.nl2sql.sql_generator import FakeSqlGenerator
 from nl2sqlagent.workflows.runtime import GraphRuntime
 
 
@@ -31,9 +32,16 @@ def _runtime() -> tuple[GraphRuntime, object, RunContext]:
     )
 
 
+def _nl2sql_graph(checkpointer: object):
+    return build_nl2sql_graph(
+        checkpointer=checkpointer,
+        sql_generator=FakeSqlGenerator(),
+    )
+
+
 def _workflow_with_log_dir(tmp_path) -> Nl2SqlWorkflow:
     runtime, checkpointer, run_context = _runtime()
-    graph = build_nl2sql_graph(checkpointer=checkpointer)
+    graph = _nl2sql_graph(checkpointer)
     return Nl2SqlWorkflow(
         graph=graph,
         graph_runtime=runtime,
@@ -45,7 +53,7 @@ def _workflow_with_log_dir(tmp_path) -> Nl2SqlWorkflow:
 
 def test_nl2sql_graph_success_path_includes_final_prompt() -> None:
     runtime, checkpointer, run_context = _runtime()
-    graph = build_nl2sql_graph(checkpointer=checkpointer)
+    graph = _nl2sql_graph(checkpointer)
 
     result = runtime.invoke(
         graph=graph,
@@ -57,6 +65,8 @@ def test_nl2sql_graph_success_path_includes_final_prompt() -> None:
     assert result["status"] == "success"
     assert result["checked_sql"] == "SELECT 1 AS value"
     assert result["result_rows"] == [{"value": 1}]
+    assert result["llm_result"]["model_name"] == "fake-sql-generator"
+    assert result["llm_result"]["raw_text"] == "SELECT 1 AS value"
     assert "User Question:\n按部门统计在职员工人数" in result["final_prompt"]
     assert "Schema Context:" in result["final_prompt"]
     assert "SQL Policy:" in result["final_prompt"]
@@ -71,7 +81,7 @@ def test_nl2sql_graph_success_path_includes_final_prompt() -> None:
 
 def test_nl2sql_graph_blank_question_goes_to_clarification() -> None:
     runtime, checkpointer, run_context = _runtime()
-    graph = build_nl2sql_graph(checkpointer=checkpointer)
+    graph = _nl2sql_graph(checkpointer)
 
     result = runtime.invoke(
         graph=graph,
@@ -87,7 +97,7 @@ def test_nl2sql_graph_blank_question_goes_to_clarification() -> None:
 
 def test_nl2sql_graph_check_failure_does_not_retry() -> None:
     runtime, checkpointer, run_context = _runtime()
-    graph = build_nl2sql_graph(checkpointer=checkpointer)
+    graph = _nl2sql_graph(checkpointer)
 
     result = runtime.invoke(
         graph=graph,
@@ -109,9 +119,34 @@ def test_nl2sql_graph_check_failure_does_not_retry() -> None:
     assert "result_rows" not in result
 
 
+def test_nl2sql_graph_sql_generation_failure_skips_check_sql() -> None:
+    class _RaisingSqlGenerator:
+        def generate(self, final_prompt: str) -> object:
+            raise RuntimeError("generator failed")
+
+    runtime, checkpointer, run_context = _runtime()
+    graph = build_nl2sql_graph(
+        checkpointer=checkpointer,
+        sql_generator=_RaisingSqlGenerator(),
+    )
+
+    result = runtime.invoke(
+        graph=graph,
+        input={"raw_question": "按部门统计在职员工人数", "options": {}},
+        run_context=run_context,
+        thread_id="thread-nl2sql-generate-failed",
+    )
+
+    assert result["status"] == "failed"
+    assert result["generate_error"] == "generator failed"
+    assert result["message"] == "generator failed"
+    assert not result.get("check_error")
+    assert not result.get("checked_sql")
+
+
 def test_nl2sql_graph_execute_failure_does_not_retry() -> None:
     runtime, checkpointer, run_context = _runtime()
-    graph = build_nl2sql_graph(checkpointer=checkpointer)
+    graph = _nl2sql_graph(checkpointer)
 
     result = runtime.invoke(
         graph=graph,
@@ -153,7 +188,7 @@ def test_nl2sql_workflow_graph_input_preserves_options_and_adds_runtime_options(
 
 def test_nl2sql_workflow_run_returns_output_with_prompt_metadata() -> None:
     runtime, checkpointer, run_context = _runtime()
-    graph = build_nl2sql_graph(checkpointer=checkpointer)
+    graph = _nl2sql_graph(checkpointer)
     workflow = Nl2SqlWorkflow(
         graph=graph,
         graph_runtime=runtime,
@@ -172,12 +207,13 @@ def test_nl2sql_workflow_run_returns_output_with_prompt_metadata() -> None:
     assert "User Question:\n按部门统计在职员工人数" in output.metadata["final_prompt"]
     assert output.metadata["prompt_payload"]["question"]["normalized"] == "按部门统计在职员工人数"
     assert output.metadata["prompt_payload"]["debug"]["prompt_version"] == "phase6.sql-context.v1"
+    assert output.metadata["llm_result"]["model_name"] == "fake-sql-generator"
     assert "phase6.sql-context.v1" not in output.metadata["final_prompt"]
 
 
 def test_nl2sql_workflow_run_preserves_prompt_metadata_on_check_failure() -> None:
     runtime, checkpointer, run_context = _runtime()
-    graph = build_nl2sql_graph(checkpointer=checkpointer)
+    graph = _nl2sql_graph(checkpointer)
     workflow = Nl2SqlWorkflow(
         graph=graph,
         graph_runtime=runtime,
@@ -201,7 +237,7 @@ def test_nl2sql_workflow_run_preserves_prompt_metadata_on_check_failure() -> Non
 
 def test_nl2sql_workflow_stream_updates_exposes_build_prompt_update() -> None:
     runtime, checkpointer, run_context = _runtime()
-    graph = build_nl2sql_graph(checkpointer=checkpointer)
+    graph = _nl2sql_graph(checkpointer)
     workflow = Nl2SqlWorkflow(
         graph=graph,
         graph_runtime=runtime,
@@ -222,6 +258,12 @@ def test_nl2sql_workflow_stream_updates_exposes_build_prompt_update() -> None:
         and "phase6.sql-context.v1" not in chunk["build_prompt"]["final_prompt"]
         and "schema_linking_result" in chunk["build_prompt"]
         and "sql_generation_context" in chunk["build_prompt"]
+        for chunk in chunks
+    )
+    assert any(
+        isinstance(chunk, dict)
+        and "generate_sql" in chunk
+        and chunk["generate_sql"]["llm_result"]["model_name"] == "fake-sql-generator"
         for chunk in chunks
     )
 
@@ -262,6 +304,38 @@ def test_nl2sql_workflow_run_writes_artifacts(tmp_path) -> None:
     output_json = json.loads(output_path.read_text(encoding="utf-8"))
     assert output_json["metadata"]["artifact_manifest_path"] == manifest_path
     assert output_json["metadata"]["token_usage_path"] is None
+    assert output_json["metadata"]["llm_result"]["model_name"] == "fake-sql-generator"
+    assert any(
+        json.loads(line)["node"] == "generate_sql"
+        for line in graph_updates_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    )
+
+
+def test_nl2sql_workflow_run_does_not_leak_api_key_into_artifacts(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    secret = "sk-test-secret-should-not-leak"
+    monkeypatch.setenv("DASHSCOPE_API_KEY", secret)
+    workflow = _workflow_with_log_dir(tmp_path)
+
+    output = workflow.run(
+        Nl2SqlInput(question="按部门统计在职员工人数"),
+        thread_id="thread-nl2sql-secret-guard",
+    )
+
+    assert output.status == "success"
+    bundle = "\n".join(
+        [
+            Path(output.metadata["final_prompt_path"]).read_text(encoding="utf-8"),
+            Path(output.metadata["prompt_payload_path"]).read_text(encoding="utf-8"),
+            Path(output.metadata["graph_updates_path"]).read_text(encoding="utf-8"),
+            Path(output.metadata["output_path"]).read_text(encoding="utf-8"),
+            Path(output.metadata["input_path"]).read_text(encoding="utf-8"),
+        ]
+    )
+    assert secret not in bundle
 
 
 def test_nl2sql_workflow_clarification_writes_artifact_without_prompt_files(
@@ -351,6 +425,10 @@ def test_build_app_exposes_nl2sql_workflow(tmp_path) -> None:
     )
     (config_dir / "workflow.yml").write_text(
         "workflow:\n  checkpointer:\n    provider: memory\n",
+        encoding="utf-8",
+    )
+    (config_dir / "model.yml").write_text(
+        "model:\n  sql_generator:\n    provider: fake\n",
         encoding="utf-8",
     )
     (tmp_path / "pyproject.toml").write_text(

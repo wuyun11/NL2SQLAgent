@@ -33,6 +33,10 @@ def _write_config(project_root: Path) -> None:
         "workflow:\n  checkpointer:\n    provider: memory\n",
         encoding="utf-8",
     )
+    (config_dir / "model.yml").write_text(
+        "model:\n  sql_generator:\n    provider: fake\n",
+        encoding="utf-8",
+    )
     (project_root / "pyproject.toml").write_text(
         "[project]\nname='test-agent'\n",
         encoding="utf-8",

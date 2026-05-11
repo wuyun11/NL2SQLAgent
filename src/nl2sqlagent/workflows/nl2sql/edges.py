@@ -29,8 +29,17 @@ def route_after_execute(
     return "success_response"
 
 
+def route_after_generate(
+    state: Nl2SqlGraphState,
+) -> Literal["failed_response", "check_sql"]:
+    if state.get("generate_error"):
+        return "failed_response"
+    return "check_sql"
+
+
 __all__ = [
     "route_after_check",
     "route_after_execute",
+    "route_after_generate",
     "route_after_normalize",
 ]

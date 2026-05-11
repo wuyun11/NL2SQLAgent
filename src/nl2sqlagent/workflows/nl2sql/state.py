@@ -32,6 +32,9 @@ class Nl2SqlGraphState(TypedDict, total=False):
     prompt_payload: Nl2SqlPromptPayload
     final_prompt: str | None
 
+    llm_result: dict[str, object]
+    generate_error: str | None
+
     generated_sql: str | None
     checked_sql: str | None
     check_error: str | None

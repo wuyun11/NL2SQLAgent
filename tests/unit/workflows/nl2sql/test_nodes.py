@@ -10,6 +10,7 @@ from nl2sqlagent.workflows.nl2sql.nodes import (
     normalize_question_node,
     success_response_node,
 )
+from nl2sqlagent.workflows.nl2sql.sql_generator import FakeSqlGenerator
 
 
 def test_normalize_question_strips_question() -> None:
@@ -60,12 +61,45 @@ def test_build_prompt_node_creates_structured_payload_and_final_prompt() -> None
     assert "retrieval_method" not in result["final_prompt"]
 
 
-def test_generate_sql_node_returns_sql_only_mock_sql() -> None:
-    result = generate_sql_node({"final_prompt": "User Question:\n统计员工数量"})
+def test_generate_sql_node_returns_sql_from_generator() -> None:
+    gen = FakeSqlGenerator(sql="SELECT 1 AS value")
+    result = generate_sql_node(
+        {"final_prompt": "User Question:\n统计员工数量"},
+        sql_generator=gen,
+    )
 
-    assert result == {"generated_sql": "SELECT 1 AS value"}
+    assert result == {
+        "generated_sql": "SELECT 1 AS value",
+        "llm_result": {
+            "model_name": "fake-sql-generator",
+            "raw_text": "SELECT 1 AS value",
+        },
+        "generate_error": None,
+    }
     assert "```" not in result["generated_sql"]
     assert "\n" not in result["generated_sql"]
+
+
+def test_generate_sql_node_requires_final_prompt() -> None:
+    gen = FakeSqlGenerator()
+    result = generate_sql_node({"final_prompt": ""}, sql_generator=gen)
+
+    assert result["status"] == "failed"
+    assert result["generate_error"] == "final_prompt is required before SQL generation"
+
+
+def test_generate_sql_node_catches_generator_errors() -> None:
+    class _Boom:
+        def generate(self, final_prompt: str) -> object:
+            raise ValueError("boom")
+
+    result = generate_sql_node(
+        {"final_prompt": "User Question:\nx"},
+        sql_generator=_Boom(),
+    )
+
+    assert result["status"] == "failed"
+    assert result["generate_error"] == "boom"
 
 
 def test_check_sql_node_can_force_check_error() -> None:
@@ -154,6 +188,15 @@ def test_response_nodes_set_final_status() -> None:
     assert failed_response_node({"check_error": "mock check error"}) == {
         "status": "failed",
         "message": "mock check error",
+    }
+    assert failed_response_node(
+        {
+            "generate_error": "generator failed",
+            "check_error": "mock check error",
+        }
+    ) == {
+        "status": "failed",
+        "message": "generator failed",
     }
     assert success_response_node({}) == {
         "status": "success",

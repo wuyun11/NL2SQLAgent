@@ -3,6 +3,7 @@ from __future__ import annotations
 from nl2sqlagent.workflows.nl2sql.edges import (
     route_after_check,
     route_after_execute,
+    route_after_generate,
     route_after_normalize,
 )
 
@@ -37,3 +38,11 @@ def test_route_after_execute_goes_failed_when_execute_error_exists() -> None:
 
 def test_route_after_execute_goes_success_when_no_execute_error() -> None:
     assert route_after_execute({"result_rows": [{"value": 1}]}) == "success_response"
+
+
+def test_route_after_generate_goes_failed_when_generate_error_exists() -> None:
+    assert route_after_generate({"generate_error": "boom"}) == "failed_response"
+
+
+def test_route_after_generate_goes_check_when_no_generate_error() -> None:
+    assert route_after_generate({"generated_sql": "SELECT 1"}) == "check_sql"

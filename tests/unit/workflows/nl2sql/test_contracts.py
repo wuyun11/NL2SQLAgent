@@ -190,6 +190,23 @@ def test_phase5_does_not_add_heavy_architecture_layers() -> None:
     assert all(not path.exists() for path in forbidden_paths)
 
 
+def test_phase7_src_does_not_use_use_llm_generate_flag() -> None:
+    root = Path("src")
+    for path in root.rglob("*.py"):
+        assert "use_llm_generate" not in path.read_text(encoding="utf-8")
+
+
+def test_phase7_forbidden_heavy_paths_stay_absent() -> None:
+    assert not Path("src/nl2sqlagent/engine/chains").exists()
+    assert not Path("src/nl2sqlagent/application/stages").exists()
+
+
+def test_phase7_nodes_do_not_embed_llm_client_or_provider_secrets() -> None:
+    source = Path("src/nl2sqlagent/workflows/nl2sql/nodes.py").read_text(encoding="utf-8")
+    for token in ("ChatOpenAI", "DASHSCOPE_API_KEY"):
+        assert token not in source
+
+
 def test_phase5_does_not_introduce_stage_protocol_or_context_result_shells() -> None:
     import ast
 

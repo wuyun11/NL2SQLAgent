@@ -43,6 +43,10 @@ def test_build_output_for_success_includes_sql_rows_and_prompt_metadata() -> Non
             "sql_generation_context": context,
             "prompt_payload": prompt_payload,
             "final_prompt": final_prompt,
+            "llm_result": {
+                "model_name": "fake-sql-generator",
+                "raw_text": "SELECT 1 AS value",
+            },
         }
     )
 
@@ -57,6 +61,20 @@ def test_build_output_for_success_includes_sql_rows_and_prompt_metadata() -> Non
     assert output.metadata["processed_question"]["text"] == "按部门统计在职员工人数"
     assert "schema_linking_result" in output.metadata
     assert "sql_generation_context" in output.metadata
+    assert output.metadata["llm_result"]["model_name"] == "fake-sql-generator"
+
+
+def test_build_prompt_debug_metadata_includes_llm_fields() -> None:
+    metadata = build_prompt_debug_metadata(
+        {
+            "prompt_payload": {"question": {"normalized": "x"}},
+            "llm_result": {"model_name": "fake-sql-generator", "raw_text": "SELECT 1"},
+            "generate_error": None,
+        }
+    )
+
+    assert metadata["llm_result"]["model_name"] == "fake-sql-generator"
+    assert metadata["generate_error"] is None
 
 
 def test_build_output_for_clarification_does_not_require_prompt_metadata() -> None:
@@ -73,6 +91,19 @@ def test_build_output_for_clarification_does_not_require_prompt_metadata() -> No
     assert output.columns == []
     assert output.rows == []
     assert output.metadata == {}
+
+
+def test_build_output_for_failed_prefers_generate_error_over_check_error() -> None:
+    output = build_nl2sql_output(
+        {
+            "status": "failed",
+            "generate_error": "generator failed",
+            "check_error": "mock check error",
+            "execute_error": "mock execute error",
+        }
+    )
+
+    assert output.message == "generator failed"
 
 
 def test_build_output_for_failed_prefers_check_error_message() -> None:

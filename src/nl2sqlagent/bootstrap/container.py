@@ -4,6 +4,8 @@ from pathlib import Path
 
 from nl2sqlagent.bootstrap.app import NL2SQLAgentApp
 from nl2sqlagent.platform.config import load_app_config
+from nl2sqlagent.platform.config.models import SqlGeneratorSection
+from nl2sqlagent.platform.errors import ConfigurationError
 from nl2sqlagent.platform.logging import build_logger
 from nl2sqlagent.platform.paths import (
     find_project_root,
@@ -15,7 +17,43 @@ from nl2sqlagent.workflows.nl2sql import (
     Nl2SqlWorkflow,
     build_nl2sql_graph,
 )
+from nl2sqlagent.workflows.nl2sql.sql_generator import (
+    FakeSqlGenerator,
+    OpenAICompatibleSqlGenerator,
+    SqlGenerator,
+)
 from nl2sqlagent.workflows.runtime import GraphRuntime
+
+
+def build_sql_generator(
+    *,
+    sql_generator: SqlGeneratorSection,
+    project_root: Path,
+) -> SqlGenerator:
+    if sql_generator.provider == "fake":
+        return FakeSqlGenerator(sql=sql_generator.fixed_sql or "SELECT 1 AS value")
+    if sql_generator.provider == "openai_compatible":
+        if sql_generator.chat_model_name is None:
+            raise ConfigurationError("model.sql_generator.chat_model_name is required")
+        if not sql_generator.base_url:
+            raise ConfigurationError("model.sql_generator.base_url is required")
+        if not sql_generator.api_key_env:
+            raise ConfigurationError("model.sql_generator.api_key_env is required")
+        if sql_generator.temperature is None:
+            raise ConfigurationError("model.sql_generator.temperature is required")
+        if sql_generator.timeout_seconds is None:
+            raise ConfigurationError("model.sql_generator.timeout_seconds is required")
+        return OpenAICompatibleSqlGenerator(
+            chat_model_name=sql_generator.chat_model_name,
+            base_url=sql_generator.base_url,
+            api_key_env=sql_generator.api_key_env,
+            temperature=sql_generator.temperature,
+            timeout_seconds=sql_generator.timeout_seconds,
+            project_root=project_root,
+        )
+    raise ConfigurationError(
+        f"unsupported model.sql_generator.provider: {sql_generator.provider!r}"
+    )
 
 
 def build_app(
@@ -50,7 +88,14 @@ def build_app(
     )
     checkpointer = build_checkpointer(config.workflow)
     graph_runtime = GraphRuntime()
-    nl2sql_graph = build_nl2sql_graph(checkpointer=checkpointer)
+    sql_generator = build_sql_generator(
+        sql_generator=config.model.sql_generator,
+        project_root=resolved_project_root,
+    )
+    nl2sql_graph = build_nl2sql_graph(
+        checkpointer=checkpointer,
+        sql_generator=sql_generator,
+    )
     nl2sql_workflow = Nl2SqlWorkflow(
         graph=nl2sql_graph,
         graph_runtime=graph_runtime,
@@ -69,4 +114,4 @@ def build_app(
     )
 
 
-__all__ = ["build_app"]
+__all__ = ["build_app", "build_sql_generator"]

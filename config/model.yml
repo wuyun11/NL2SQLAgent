@@ -1,0 +1,8 @@
+model:
+  sql_generator:
+    provider: openai_compatible
+    chat_model_name: glm-5
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    api_key_env: DASHSCOPE_API_KEY
+    temperature: 0
+    timeout_seconds: 60
