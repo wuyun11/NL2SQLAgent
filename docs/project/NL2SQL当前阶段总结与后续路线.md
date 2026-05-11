@@ -70,7 +70,8 @@ build_prompt:
   已经接入中间层消费链路。
 
 generate_sql:
-  当前仍然是 SELECT 1 AS value 的 mock。
+  已经接入最薄 LLM SQL 生成。
+  当前通过 SqlGenerator 依赖调用 OpenAI-compatible provider。
 
 check_sql / execute_sql:
   当前仍然是 mock，用于跑通工作流形状。
@@ -79,8 +80,9 @@ check_sql / execute_sql:
 这一步的意义是：
 
 ```text
-后续接 LLM 时，只需要优先替换 generate_sql_node。
-不要在接 LLM 时重新搅动前面的知识层消费链路。
+final_prompt 已经可以真实进入 LLM。
+generated_sql 已经可以写入 output / artifact。
+后续继续验证中间层对象质量时，不需要重新搅动 LangGraph 主流程。
 ```
 
 ### 1.3 中间层对象链路
@@ -276,7 +278,6 @@ relationship 不清楚？
 当前还没有做：
 
 ```text
-真实 LLM 调用
 真实数据库读取
 真实 SQL 执行
 真实 RawUserQuestion -> ProcessedQuestion
@@ -290,6 +291,14 @@ evaluation dataset
 ```
 
 这些没有做是刻意的。
+
+其中真实 LLM 调用已经接入，但当前目标仍然不是完整 NL2SQL 产品。
+
+它只是用于验证：
+
+```text
+当前 final_prompt 是否足够支撑模型生成 SQL。
+```
 
 其中尤其要注意：
 
@@ -416,20 +425,21 @@ Output Contract 是否足够避免解释性文本。
 是不是要先自动生成 ProcessedQuestion。
 ```
 
-### 4.3 generated_sql 应该如何进入 artifact
+### 4.3 generated_sql 当前如何进入 artifact
 
-下一阶段接 LLM 后，至少要能在 artifact 里看到：
+当前接入 LLM 后，已经可以在 artifact 里看到：
 
 ```text
 final_prompt.txt
 prompt_payload.json
 generated_sql
 model 信息
-可选 token usage
-可选 raw model response
+raw model response
 ```
 
-当前已经有 `output.json` 和 `graph_updates.jsonl`，初版可以继续复用。
+当前已经有 `output.json` 和 `graph_updates.jsonl`，可以继续复用。
+
+token usage 当前还没有接入，`token_usage_path` 会是 `null`。
 
 不要一开始就设计复杂评测系统。
 
@@ -490,27 +500,30 @@ LLM 返回 SQL 是什么。
 最终希望 SQL 大概长什么样？
 ```
 
-### 阶段 B：最薄 LLM SQL 生成节点
+### 阶段 B：多样例 LLM SQL 生成观察
 
-把当前：
-
-```text
-generate_sql_node -> SELECT 1 AS value
-```
-
-替换或旁路为最薄的 LLM 调用：
+当前已经完成：
 
 ```text
 final_prompt -> LLM -> generated_sql
 ```
 
-这一层初版只负责：
+下一步不要把重点放在继续扩模型接入能力，而是构造多组人工中间层样例：
 
 ```text
-读取 final_prompt
-调用模型
-拿到文本
-写入 generated_sql
+不同问题
+不同表组合
+不同 relationship
+不同 value binding
+不同 metric / dimension
+```
+
+然后观察：
+
+```text
+final_prompt 是否稳定
+LLM 输出 SQL 是否符合中间层信息
+错误是否能追溯到 ProcessedQuestion / ProcessedDatabaseKnowledge / linking / prompt
 ```
 
 不要让 LLM 在这里重新做 schema linking。
@@ -592,7 +605,7 @@ RawDatabaseSchema / Manual Metadata -> ProcessedDatabaseKnowledge
 下一阶段建议命名为：
 
 ```text
-LLM SQL 生成验证
+多样例 LLM SQL 生成验证
 ```
 
 它的目标不是完整 NL2SQL。
