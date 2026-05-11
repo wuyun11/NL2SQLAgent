@@ -23,8 +23,9 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests/unit", "tests/integration"]
+testpaths = ["tests"]
 pythonpath = ["src"]
+addopts = "-m \"not cloud\""
 markers = [
     "cloud: tests that call remote LLM services and consume token",
 ]

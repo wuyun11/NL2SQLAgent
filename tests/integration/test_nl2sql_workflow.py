@@ -399,7 +399,9 @@ def test_nl2sql_workflow_runtime_options_still_support_mock_check_failure(
     assert output.metadata["prompt_payload"]["question"]["normalized"] == "按部门统计在职员工人数"
 
 
-def test_build_app_exposes_nl2sql_workflow(tmp_path) -> None:
+def test_build_app_exposes_nl2sql_workflow(tmp_path, monkeypatch) -> None:
+    secret = "sk-test-secret-should-not-leak"
+    monkeypatch.setenv("DASHSCOPE_API_KEY", secret)
     config_dir = tmp_path / "config"
     config_dir.mkdir()
     (config_dir / "app.yml").write_text(
@@ -450,3 +452,6 @@ def test_build_app_exposes_nl2sql_workflow(tmp_path) -> None:
     assert output.metadata["artifact_manifest_path"] is not None
     assert Path(output.metadata["artifact_manifest_path"]).exists()
     assert str(app.logging.log_dir) in output.metadata["artifact_manifest_path"]
+    app_log = app.logging.log_dir / "app.log"
+    assert app_log.exists()
+    assert secret not in app_log.read_text(encoding="utf-8")

@@ -708,7 +708,7 @@ tests/cloud/README.md
 
 ```powershell
 $py = (Get-Content .\.ai\local\python_path.txt -Encoding UTF8).Trim()
-& $py -m pytest tests/cloud -q -m cloud
+& $py -m pytest tests/cloud -q -m cloud --basetemp .pytest_tmp
 ```
 
 需要在 `pyproject.toml` 增加 marker：

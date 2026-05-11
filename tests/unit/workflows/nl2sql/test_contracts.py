@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ast
+import tomllib
 from pathlib import Path
 
 from nl2sqlagent.workflows.nl2sql import (
@@ -203,13 +205,52 @@ def test_phase7_forbidden_heavy_paths_stay_absent() -> None:
 
 def test_phase7_nodes_do_not_embed_llm_client_or_provider_secrets() -> None:
     source = Path("src/nl2sqlagent/workflows/nl2sql/nodes.py").read_text(encoding="utf-8")
-    for token in ("ChatOpenAI", "DASHSCOPE_API_KEY"):
+    for token in (
+        "ChatOpenAI",
+        "DASHSCOPE_API_KEY",
+        "api_key",
+        "base_url",
+        "langchain_openai",
+        "os.environ",
+    ):
         assert token not in source
 
 
-def test_phase5_does_not_introduce_stage_protocol_or_context_result_shells() -> None:
-    import ast
+def test_phase7_sql_generator_provider_imports_are_lazy() -> None:
+    source = Path("src/nl2sqlagent/workflows/nl2sql/sql_generator.py").read_text(
+        encoding="utf-8"
+    )
+    tree = ast.parse(source)
 
+    top_level_imports = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.Import | ast.ImportFrom)
+    ]
+    imported_modules = {
+        alias.name
+        for node in top_level_imports
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    } | {
+        str(node.module)
+        for node in top_level_imports
+        if isinstance(node, ast.ImportFrom)
+    }
+
+    assert "langchain_openai" not in imported_modules
+    assert "langchain_core.messages" not in imported_modules
+
+
+def test_pytest_config_excludes_cloud_tests_by_default() -> None:
+    data = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+    pytest_options = data["tool"]["pytest"]["ini_options"]
+
+    assert pytest_options["testpaths"] == ["tests"]
+    assert pytest_options["addopts"] == '-m "not cloud"'
+
+
+def test_phase5_does_not_introduce_stage_protocol_or_context_result_shells() -> None:
     root = Path("src/nl2sqlagent/workflows/nl2sql")
     forbidden = {
         "Nl2SqlContext",

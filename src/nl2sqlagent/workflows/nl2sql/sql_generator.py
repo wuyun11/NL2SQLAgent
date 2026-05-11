@@ -5,9 +5,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from langchain_core.messages import HumanMessage
-from langchain_openai import ChatOpenAI
-
 
 class SqlGenerationError(Exception):
     """Raised when the LLM returns unusable SQL or configuration is invalid."""
@@ -91,11 +88,13 @@ class OpenAICompatibleSqlGenerator:
     timeout_seconds: int
     project_root: Path
 
-    _chat: ChatOpenAI | None = None
+    _chat: object | None = None
 
-    def _ensure_chat(self) -> ChatOpenAI:
+    def _ensure_chat(self) -> object:
         if self._chat is not None:
             return self._chat
+        from langchain_openai import ChatOpenAI
+
         api_key = resolve_env_value(self.api_key_env, self.project_root)
         if not api_key or not str(api_key).strip():
             raise SqlGenerationError(
@@ -111,6 +110,8 @@ class OpenAICompatibleSqlGenerator:
         return self._chat
 
     def generate(self, final_prompt: str) -> SqlGenerationResult:
+        from langchain_core.messages import HumanMessage
+
         chat = self._ensure_chat()
         message = HumanMessage(content=final_prompt)
         response = chat.invoke([message])

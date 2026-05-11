@@ -324,7 +324,7 @@ stream event
 
 ## 4. 其他需要清理的点
 
-### 4.1 清理临时产物 `.pytest-temp/`
+### 4.1 清理错误命名的临时产物，并统一使用 `.pytest_tmp/`
 
 当前 git status 中出现：
 
@@ -332,18 +332,43 @@ stream event
 ?? .pytest-temp/
 ```
 
-如果不是人为保留的测试数据，建议删除或加入忽略规则。
+这个目录名不符合当前项目约定。
+
+当前项目规则见：
+
+```text
+.ai/guide/10_运行方式.md
+.gitignore
+```
+
+约定的 pytest 临时目录是：
+
+```text
+.pytest_tmp/
+```
+
+不是：
+
+```text
+.pytest-temp/
+.pytest-tmp/
+```
+
+如果出现 `.pytest-temp/`，应视为执行过程中的错误临时产物。
 
 建议：
 
 ```text
 删除 .pytest-temp/
+后续测试命令统一使用 --basetemp .pytest_tmp
 ```
 
 原因：
 
 ```text
-它不是项目源代码、配置、测试或文档。
+1. .pytest-temp/ 不是项目约定目录。
+2. .pytest_tmp/ 已列入 .gitignore。
+3. 统一 basetemp 能避免 Windows 环境下系统临时目录权限问题。
 ```
 
 ### 4.2 提交前需要确认未跟踪文档归属
@@ -401,14 +426,15 @@ Task 4:
   secret non-leak 测试增加 app.log 覆盖。
 
 Task 5:
-  清理 .pytest-temp/。
+  清理错误命名的 .pytest-temp/。
+  后续测试命令统一带 --basetemp .pytest_tmp。
 
 Task 6:
   重新运行：
     python -m compileall src tests
-    python -m pytest -q
-    python -m pytest tests/cloud -q
-    python -m pytest tests/cloud -q -m cloud
+    python -m pytest -q --basetemp .pytest_tmp
+    python -m pytest tests/cloud -q --basetemp .pytest_tmp
+    python -m pytest tests/cloud -q -m cloud --basetemp .pytest_tmp
 ```
 
 ## 6. 最终判断
@@ -422,7 +448,7 @@ Task 6:
 2. provider lazy import。
 3. 架构保护测试补全。
 4. app.log secret 保护。
-5. 清理临时目录。
+5. 清理错误命名的临时目录，并统一使用 .pytest_tmp/。
 ```
 
 我不建议现在修：

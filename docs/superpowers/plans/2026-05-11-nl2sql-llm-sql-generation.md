@@ -27,7 +27,7 @@ Run Python through the project-local interpreter:
 
 ```powershell
 $py = (Get-Content .\.ai\local\python_path.txt -Encoding UTF8).Trim()
-& $py -m pytest ...
+& $py -m pytest ... --basetemp .pytest_tmp
 ```
 
 Use UTF-8 in PowerShell when reading/writing Chinese files:
@@ -167,7 +167,7 @@ Run:
 
 ```powershell
 $py = (Get-Content .\.ai\local\python_path.txt -Encoding UTF8).Trim()
-& $py -m pytest tests/unit/platform/test_config_loader.py -q
+& $py -m pytest tests/unit/platform/test_config_loader.py -q --basetemp .pytest_tmp
 ```
 
 Expected: FAIL because `AppConfig` has no `model` field and `loader.py` does not load `model.yml`.
@@ -245,7 +245,7 @@ Run:
 
 ```powershell
 $py = (Get-Content .\.ai\local\python_path.txt -Encoding UTF8).Trim()
-& $py -m pytest tests/unit/platform/test_config_loader.py tests/integration/test_startup_cli.py -q
+& $py -m pytest tests/unit/platform/test_config_loader.py tests/integration/test_startup_cli.py -q --basetemp .pytest_tmp
 ```
 
 Expected: PASS.
@@ -300,7 +300,7 @@ Run:
 
 ```powershell
 $py = (Get-Content .\.ai\local\python_path.txt -Encoding UTF8).Trim()
-& $py -m pytest tests/unit/workflows/nl2sql/test_sql_generator.py -q
+& $py -m pytest tests/unit/workflows/nl2sql/test_sql_generator.py -q --basetemp .pytest_tmp
 ```
 
 Expected: FAIL because `sql_generator.py` does not exist.
@@ -434,7 +434,7 @@ Run:
 
 ```powershell
 $py = (Get-Content .\.ai\local\python_path.txt -Encoding UTF8).Trim()
-& $py -m pytest tests/unit/workflows/nl2sql/test_sql_generator.py -q
+& $py -m pytest tests/unit/workflows/nl2sql/test_sql_generator.py -q --basetemp .pytest_tmp
 ```
 
 Expected: PASS.
@@ -508,7 +508,7 @@ Run:
 
 ```powershell
 $py = (Get-Content .\.ai\local\python_path.txt -Encoding UTF8).Trim()
-& $py -m pytest tests/unit/workflows/nl2sql/test_edges.py tests/unit/workflows/nl2sql/test_nodes.py -q
+& $py -m pytest tests/unit/workflows/nl2sql/test_edges.py tests/unit/workflows/nl2sql/test_nodes.py -q --basetemp .pytest_tmp
 ```
 
 Expected: FAIL because `route_after_generate` and injected generator node behavior do not exist.
@@ -656,7 +656,7 @@ Run:
 
 ```powershell
 $py = (Get-Content .\.ai\local\python_path.txt -Encoding UTF8).Trim()
-& $py -m pytest tests/unit/workflows/nl2sql/test_edges.py tests/unit/workflows/nl2sql/test_nodes.py tests/unit/workflows/nl2sql/test_response_builder.py tests/integration/test_nl2sql_workflow.py -q
+& $py -m pytest tests/unit/workflows/nl2sql/test_edges.py tests/unit/workflows/nl2sql/test_nodes.py tests/unit/workflows/nl2sql/test_response_builder.py tests/integration/test_nl2sql_workflow.py -q --basetemp .pytest_tmp
 ```
 
 Expected: PASS.
@@ -707,7 +707,7 @@ Run:
 
 ```powershell
 $py = (Get-Content .\.ai\local\python_path.txt -Encoding UTF8).Trim()
-& $py -m pytest tests/integration/test_nl2sql_workflow.py::test_build_app_exposes_only_nl2sql_workflow -q
+& $py -m pytest tests/integration/test_nl2sql_workflow.py::test_build_app_exposes_only_nl2sql_workflow -q --basetemp .pytest_tmp
 ```
 
 Use the actual current test name if it differs.
@@ -794,7 +794,7 @@ Run:
 
 ```powershell
 $py = (Get-Content .\.ai\local\python_path.txt -Encoding UTF8).Trim()
-& $py -m pytest tests/integration/test_startup_cli.py tests/integration/test_nl2sql_workflow.py tests/unit/workflows/nl2sql/test_contracts.py -q
+& $py -m pytest tests/integration/test_startup_cli.py tests/integration/test_nl2sql_workflow.py tests/unit/workflows/nl2sql/test_contracts.py -q --basetemp .pytest_tmp
 ```
 
 Expected: PASS.
@@ -875,7 +875,7 @@ Run:
 
 ```powershell
 $py = (Get-Content .\.ai\local\python_path.txt -Encoding UTF8).Trim()
-& $py -m pytest tests/unit/workflows/nl2sql/test_artifacts.py tests/unit/workflows/nl2sql/test_contracts.py -q
+& $py -m pytest tests/unit/workflows/nl2sql/test_artifacts.py tests/unit/workflows/nl2sql/test_contracts.py -q --basetemp .pytest_tmp
 ```
 
 Expected: PASS.
@@ -930,7 +930,7 @@ This directory contains tests that call remote LLM services and may consume toke
 
 ```powershell
 $py = (Get-Content .\.ai\local\python_path.txt -Encoding UTF8).Trim()
-& $py -m pytest tests/cloud -q -m cloud
+& $py -m pytest tests/cloud -q -m cloud --basetemp .pytest_tmp
 ```
 ````
 
@@ -978,7 +978,7 @@ Run:
 
 ```powershell
 $py = (Get-Content .\.ai\local\python_path.txt -Encoding UTF8).Trim()
-& $py -m pytest tests/cloud -q
+& $py -m pytest tests/cloud -q --basetemp .pytest_tmp
 ```
 
 Expected: all cloud tests deselected because of `-m not cloud`.
@@ -986,7 +986,7 @@ Expected: all cloud tests deselected because of `-m not cloud`.
 Run:
 
 ```powershell
-& $py -m pytest tests/cloud -q -m cloud
+& $py -m pytest tests/cloud -q -m cloud --basetemp .pytest_tmp
 ```
 
 Expected:
@@ -1090,7 +1090,7 @@ Run:
 
 ```powershell
 $py = (Get-Content .\.ai\local\python_path.txt -Encoding UTF8).Trim()
-& $py -m pytest tests/unit/workflows/nl2sql/test_contracts.py -q
+& $py -m pytest tests/unit/workflows/nl2sql/test_contracts.py -q --basetemp .pytest_tmp
 ```
 
 Expected: PASS.
@@ -1124,7 +1124,7 @@ Expected: compile completes without syntax errors.
 Run:
 
 ```powershell
-& $py -m pytest -q
+& $py -m pytest -q --basetemp .pytest_tmp
 ```
 
 Expected: all non-cloud tests pass; cloud tests are deselected by default.
@@ -1160,7 +1160,7 @@ Expected: no matches, unless an existing unrelated symbol predates this task. If
 Only run if explicitly requested and `DASHSCOPE_API_KEY` is configured:
 
 ```powershell
-& $py -m pytest tests/cloud -q -m cloud
+& $py -m pytest tests/cloud -q -m cloud --basetemp .pytest_tmp
 ```
 
 Expected: PASS against real provider. If skipped due missing key, record SKIP.
